@@ -244,13 +244,7 @@ namespace SluttyHoe
             try
             {
                 if (ZNet.instance == null) return;
-                var worldField = typeof(ZNet).GetField("m_world", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public);
-                if (worldField == null) return;
-                object world = worldField.GetValue(ZNet.instance);
-                if (world == null) return;
-                var nameField = world.GetType().GetField("m_name", BindingFlags.Public | BindingFlags.Instance);
-                if (nameField == null) return;
-                string worldName = nameField.GetValue(world) as string;
+                string worldName = ZNet.instance.GetWorldName();
                 if (string.IsNullOrEmpty(worldName)) return;
 
                 BiomePaintManager.SetWorld(worldName);
