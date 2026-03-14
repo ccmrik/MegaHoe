@@ -1,0 +1,266 @@
+using HarmonyLib;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using UnityEngine;
+
+namespace SluttyHoe
+{
+    public enum BiomePaintType
+    {
+        None,
+        Meadows,
+        BlackForest,
+        Swamp,
+        Mountain,
+        Plains,
+        Mistlands
+    }
+
+    /// <summary>
+    /// Manages biome override data for grass painting.
+    /// Stores per-cell overrides in a 2m grid and persists them per world.
+    /// </summary>
+    public static class BiomePaintManager
+    {
+        private static readonly Dictionary<long, Heightmap.Biome> _overrides = new Dictionary<long, Heightmap.Biome>();
+        private static BiomePaintType _selectedBiome = BiomePaintType.None;
+        private static readonly float _cellSize = 2f;
+        private static string _currentWorldName = "";
+
+        public static BiomePaintType SelectedBiome
+        {
+            get { return _selectedBiome; }
+            set { _selectedBiome = value; }
+        }
+
+        public static int OverrideCount
+        {
+            get { return _overrides.Count; }
+        }
+
+        public static void CycleSelection()
+        {
+            BiomePaintType[] values = (BiomePaintType[])Enum.GetValues(typeof(BiomePaintType));
+            int current = Array.IndexOf(values, _selectedBiome);
+            _selectedBiome = values[(current + 1) % values.Length];
+        }
+
+        public static Heightmap.Biome ToGameBiome(BiomePaintType type)
+        {
+            switch (type)
+            {
+                case BiomePaintType.Meadows: return Heightmap.Biome.Meadows;
+                case BiomePaintType.BlackForest: return Heightmap.Biome.BlackForest;
+                case BiomePaintType.Swamp: return Heightmap.Biome.Swamp;
+                case BiomePaintType.Mountain: return Heightmap.Biome.Mountain;
+                case BiomePaintType.Plains: return Heightmap.Biome.Plains;
+                case BiomePaintType.Mistlands: return Heightmap.Biome.Mistlands;
+                default: return Heightmap.Biome.None;
+            }
+        }
+
+        public static Color GetBiomeColor(BiomePaintType type)
+        {
+            switch (type)
+            {
+                case BiomePaintType.Meadows: return new Color(0.4f, 0.8f, 0.3f);
+                case BiomePaintType.BlackForest: return new Color(0.15f, 0.4f, 0.15f);
+                case BiomePaintType.Swamp: return new Color(0.4f, 0.3f, 0.15f);
+                case BiomePaintType.Mountain: return new Color(0.9f, 0.9f, 0.95f);
+                case BiomePaintType.Plains: return new Color(0.85f, 0.75f, 0.3f);
+                case BiomePaintType.Mistlands: return new Color(0.35f, 0.2f, 0.55f);
+                default: return Color.gray;
+            }
+        }
+
+        public static string GetDisplayName(BiomePaintType type)
+        {
+            switch (type)
+            {
+                case BiomePaintType.None: return "OFF";
+                case BiomePaintType.BlackForest: return "Black Forest";
+                default: return type.ToString();
+            }
+        }
+
+        private static long PackKey(int gx, int gz)
+        {
+            return ((long)gx << 32) | (uint)gz;
+        }
+
+        public static void PaintArea(Vector3 center, float radius, Heightmap.Biome biome)
+        {
+            int minGX = Mathf.FloorToInt((center.x - radius) / _cellSize);
+            int maxGX = Mathf.CeilToInt((center.x + radius) / _cellSize);
+            int minGZ = Mathf.FloorToInt((center.z - radius) / _cellSize);
+            int maxGZ = Mathf.CeilToInt((center.z + radius) / _cellSize);
+            int painted = 0;
+
+            for (int gx = minGX; gx <= maxGX; gx++)
+            {
+                for (int gz = minGZ; gz <= maxGZ; gz++)
+                {
+                    float wx = gx * _cellSize;
+                    float wz = gz * _cellSize;
+                    float dx = wx - center.x;
+                    float dz = wz - center.z;
+                    if (dx * dx + dz * dz <= radius * radius)
+                    {
+                        long key = PackKey(gx, gz);
+                        if (biome == Heightmap.Biome.None)
+                            _overrides.Remove(key);
+                        else
+                            _overrides[key] = biome;
+                        painted++;
+                    }
+                }
+            }
+
+            SluttyHoePlugin.Log($"Painted {painted} cells with biome {biome}");
+        }
+
+        public static bool TryGetOverride(Vector3 pos, out Heightmap.Biome biome)
+        {
+            int gx = Mathf.RoundToInt(pos.x / _cellSize);
+            int gz = Mathf.RoundToInt(pos.z / _cellSize);
+            return _overrides.TryGetValue(PackKey(gx, gz), out biome);
+        }
+
+        public static void SetWorld(string worldName)
+        {
+            if (string.IsNullOrEmpty(worldName)) return;
+            if (_currentWorldName == worldName) return;
+
+            if (!string.IsNullOrEmpty(_currentWorldName))
+                Save();
+
+            _currentWorldName = worldName;
+            Load();
+        }
+
+        public static void OnWorldExit()
+        {
+            Save();
+            _overrides.Clear();
+            _currentWorldName = "";
+        }
+
+        private static string GetSavePath()
+        {
+            string dir = Path.Combine(BepInEx.Paths.ConfigPath, "SluttyHoe");
+            Directory.CreateDirectory(dir);
+            return Path.Combine(dir, "biome_paint_" + _currentWorldName + ".dat");
+        }
+
+        public static void Save()
+        {
+            if (string.IsNullOrEmpty(_currentWorldName) || _overrides.Count == 0) return;
+            try
+            {
+                string path = GetSavePath();
+                using (var writer = new BinaryWriter(File.Open(path, FileMode.Create)))
+                {
+                    writer.Write(1);
+                    writer.Write(_overrides.Count);
+                    foreach (var kvp in _overrides)
+                    {
+                        writer.Write(kvp.Key);
+                        writer.Write((int)kvp.Value);
+                    }
+                }
+                SluttyHoePlugin.Log($"Saved {_overrides.Count} biome overrides");
+            }
+            catch (Exception ex)
+            {
+                SluttyHoePlugin.LogError($"Failed to save biome paint data: {ex.Message}");
+            }
+        }
+
+        public static void Load()
+        {
+            _overrides.Clear();
+            if (string.IsNullOrEmpty(_currentWorldName)) return;
+            string path = GetSavePath();
+            if (!File.Exists(path)) return;
+            try
+            {
+                using (var reader = new BinaryReader(File.Open(path, FileMode.Open)))
+                {
+                    int version = reader.ReadInt32();
+                    int count = reader.ReadInt32();
+                    for (int i = 0; i < count; i++)
+                    {
+                        long key = reader.ReadInt64();
+                        int biome = reader.ReadInt32();
+                        _overrides[key] = (Heightmap.Biome)biome;
+                    }
+                }
+                SluttyHoePlugin.Log($"Loaded {_overrides.Count} biome overrides");
+            }
+            catch (Exception ex)
+            {
+                SluttyHoePlugin.LogError($"Failed to load biome paint data: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Override patch-level biome mask so the clutter system considers painted biome vegetation.
+    /// Biome is a flags enum - we OR the painted biome into the result so both native
+    /// and painted clutter types are eligible for generation in the patch.
+    /// </summary>
+    [HarmonyPatch(typeof(ClutterSystem), "GetPatchBiomes")]
+    public static class ClutterSystem_GetPatchBiomes_Patch
+    {
+        [HarmonyPostfix]
+        public static void Postfix(Vector3 center, float halfSize, ref Heightmap.Biome __result)
+        {
+            if (BiomePaintManager.OverrideCount == 0) return;
+
+            // Sample the patch area for any overrides
+            Heightmap.Biome overrideBiome;
+            if (BiomePaintManager.TryGetOverride(center, out overrideBiome))
+            {
+                __result |= overrideBiome;
+            }
+
+            // Also check patch corners/edges to catch overrides at patch boundaries
+            float step = halfSize;
+            Vector3[] samples = new Vector3[]
+            {
+                new Vector3(center.x - step, center.y, center.z - step),
+                new Vector3(center.x + step, center.y, center.z - step),
+                new Vector3(center.x - step, center.y, center.z + step),
+                new Vector3(center.x + step, center.y, center.z + step)
+            };
+            for (int i = 0; i < samples.Length; i++)
+            {
+                if (BiomePaintManager.TryGetOverride(samples[i], out overrideBiome))
+                {
+                    __result |= overrideBiome;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Override per-point biome lookup for individual clutter placement.
+    /// GetGroundInfo returns terrain data including biome for each grass blade position.
+    /// </summary>
+    [HarmonyPatch(typeof(ClutterSystem), "GetGroundInfo")]
+    public static class ClutterSystem_GetGroundInfo_Patch
+    {
+        [HarmonyPostfix]
+        public static void Postfix(Vector3 p, ref Heightmap.Biome biome)
+        {
+            if (BiomePaintManager.OverrideCount == 0) return;
+
+            Heightmap.Biome overrideBiome;
+            if (BiomePaintManager.TryGetOverride(p, out overrideBiome))
+            {
+                biome = overrideBiome;
+            }
+        }
+    }
+}
