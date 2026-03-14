@@ -5,7 +5,7 @@
     <AssemblyName>SluttyHoe</AssemblyName>
     <RootNamespace>SluttyHoe</RootNamespace>
     <Description>Enhanced Hoe and Cultivator with adjustable radius and terrain reset features</Description>
-    <Version>3.7.2</Version>
+    <Version>3.7.3</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>

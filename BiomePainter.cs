@@ -130,8 +130,13 @@ namespace SluttyHoe
 
         public static void SetWorld(string worldName)
         {
+            SluttyHoePlugin.Log($"[BiomePaint] SetWorld called: '{worldName}' (current: '{_currentWorldName}')");
             if (string.IsNullOrEmpty(worldName)) return;
-            if (_currentWorldName == worldName) return;
+            if (_currentWorldName == worldName)
+            {
+                SluttyHoePlugin.Log($"[BiomePaint] Same world, skipping reload (overrides: {_overrides.Count})");
+                return;
+            }
 
             if (!string.IsNullOrEmpty(_currentWorldName))
                 Save();
@@ -142,6 +147,7 @@ namespace SluttyHoe
 
         public static void OnWorldExit()
         {
+            SluttyHoePlugin.Log($"[BiomePaint] OnWorldExit: saving {_overrides.Count} overrides for '{_currentWorldName}'");
             Save();
             _overrides.Clear();
             _currentWorldName = "";
@@ -156,7 +162,16 @@ namespace SluttyHoe
 
         public static void Save()
         {
-            if (string.IsNullOrEmpty(_currentWorldName) || _overrides.Count == 0) return;
+            if (string.IsNullOrEmpty(_currentWorldName))
+            {
+                SluttyHoePlugin.Log($"[BiomeSave] Skipped: no world name set");
+                return;
+            }
+            if (_overrides.Count == 0)
+            {
+                SluttyHoePlugin.Log($"[BiomeSave] Skipped: no overrides to save");
+                return;
+            }
             try
             {
                 string path = GetSavePath();
@@ -170,20 +185,29 @@ namespace SluttyHoe
                         writer.Write((int)kvp.Value);
                     }
                 }
-                SluttyHoePlugin.Log($"Saved {_overrides.Count} biome overrides");
+                SluttyHoePlugin.Log($"[BiomeSave] Saved {_overrides.Count} overrides to: {path}");
             }
             catch (Exception ex)
             {
-                SluttyHoePlugin.LogError($"Failed to save biome paint data: {ex.Message}");
+                SluttyHoePlugin.LogError($"[BiomeSave] FAILED: {ex.Message}");
             }
         }
 
         public static void Load()
         {
             _overrides.Clear();
-            if (string.IsNullOrEmpty(_currentWorldName)) return;
+            if (string.IsNullOrEmpty(_currentWorldName))
+            {
+                SluttyHoePlugin.Log($"[BiomeLoad] Skipped: no world name set");
+                return;
+            }
             string path = GetSavePath();
-            if (!File.Exists(path)) return;
+            SluttyHoePlugin.Log($"[BiomeLoad] Looking for file: {path}");
+            if (!File.Exists(path))
+            {
+                SluttyHoePlugin.Log($"[BiomeLoad] File not found — no saved paint data");
+                return;
+            }
             try
             {
                 using (var reader = new BinaryReader(File.Open(path, FileMode.Open)))
@@ -197,11 +221,11 @@ namespace SluttyHoe
                         _overrides[key] = (Heightmap.Biome)biome;
                     }
                 }
-                SluttyHoePlugin.Log($"Loaded {_overrides.Count} biome overrides");
+                SluttyHoePlugin.Log($"[BiomeLoad] SUCCESS: Loaded {_overrides.Count} overrides from {path}");
             }
             catch (Exception ex)
             {
-                SluttyHoePlugin.LogError($"Failed to load biome paint data: {ex.Message}");
+                SluttyHoePlugin.LogError($"[BiomeLoad] FAILED to read: {ex.Message}");
             }
         }
     }
@@ -278,6 +302,38 @@ namespace SluttyHoe
             {
                 SluttyHoePlugin.LogError($"Failed to clear clutter on spawn: {ex.Message}");
             }
+        }
+    }
+
+    /// <summary>
+    /// Save biome paint data whenever the game auto-saves the world.
+    /// This ensures paint data is always persisted alongside world saves.
+    /// </summary>
+    [HarmonyPatch(typeof(ZNet), "SaveWorld")]
+    public static class ZNet_SaveWorld_SaveBiomePaint
+    {
+        [HarmonyPostfix]
+        public static void Postfix()
+        {
+            if (BiomePaintManager.OverrideCount > 0)
+            {
+                SluttyHoePlugin.Log("[BiomePaint] World save detected — saving biome paint data");
+                BiomePaintManager.Save();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Ensure biome paint data is saved when ZNet is destroyed (disconnect/quit).
+    /// </summary>
+    [HarmonyPatch(typeof(ZNet), "OnDestroy")]
+    public static class ZNet_OnDestroy_SaveBiomePaint
+    {
+        [HarmonyPrefix]
+        public static void Prefix()
+        {
+            SluttyHoePlugin.Log("[BiomePaint] ZNet.OnDestroy — saving biome paint data");
+            BiomePaintManager.Save();
         }
     }
 
