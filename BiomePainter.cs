@@ -2,6 +2,7 @@ using HarmonyLib;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using UnityEngine;
 
 namespace SluttyHoe
@@ -201,6 +202,81 @@ namespace SluttyHoe
             catch (Exception ex)
             {
                 SluttyHoePlugin.LogError($"Failed to load biome paint data: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Load biome paint data early during game startup, BEFORE ClutterSystem
+    /// generates its first set of grass patches. This ensures our GetPatchBiomes
+    /// and GetGroundInfo patches have data available from the very first frame.
+    /// </summary>
+    [HarmonyPatch(typeof(Game), "Start")]
+    public static class Game_Start_LoadBiomePaint
+    {
+        [HarmonyPostfix]
+        public static void Postfix()
+        {
+            try
+            {
+                if (ZNet.instance == null) return;
+                var worldField = typeof(ZNet).GetField("m_world", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public);
+                if (worldField == null) return;
+                object world = worldField.GetValue(ZNet.instance);
+                if (world == null) return;
+                var nameField = world.GetType().GetField("m_name", BindingFlags.Public | BindingFlags.Instance);
+                if (nameField == null) return;
+                string worldName = nameField.GetValue(world) as string;
+                if (string.IsNullOrEmpty(worldName)) return;
+
+                BiomePaintManager.SetWorld(worldName);
+                SluttyHoePlugin.Log($"[Early Load] Biome paint data loaded for world '{worldName}' ({BiomePaintManager.OverrideCount} overrides)");
+            }
+            catch (Exception ex)
+            {
+                SluttyHoePlugin.LogError($"Failed early biome paint load: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Force a full clutter rebuild once ClutterSystem and Player are both ready,
+    /// to ensure any patches generated before early load are refreshed.
+    /// </summary>
+    [HarmonyPatch(typeof(Player), "OnSpawned")]
+    public static class Player_OnSpawned_RebuildClutter
+    {
+        [HarmonyPostfix]
+        public static void Postfix(Player __instance)
+        {
+            if (__instance != Player.m_localPlayer) return;
+            if (BiomePaintManager.OverrideCount == 0) return;
+            if (ClutterSystem.instance == null) return;
+
+            try
+            {
+                // Clear all cached patches so they regenerate with our biome overrides
+                var patchesField = typeof(ClutterSystem).GetField("m_patches", BindingFlags.NonPublic | BindingFlags.Instance);
+                if (patchesField != null)
+                {
+                    var patches = patchesField.GetValue(ClutterSystem.instance);
+                    if (patches != null)
+                    {
+                        var clearMethod = patches.GetType().GetMethod("Clear");
+                        clearMethod?.Invoke(patches, null);
+                    }
+                }
+
+                // Also clear any pooled instances
+                var clearAllMethod = typeof(ClutterSystem).GetMethod("ClearAll", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (clearAllMethod != null)
+                    clearAllMethod.Invoke(ClutterSystem.instance, null);
+
+                SluttyHoePlugin.Log($"Clutter fully cleared on spawn for {BiomePaintManager.OverrideCount} biome overrides");
+            }
+            catch (Exception ex)
+            {
+                SluttyHoePlugin.LogError($"Failed to clear clutter on spawn: {ex.Message}");
             }
         }
     }
