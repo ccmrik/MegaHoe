@@ -2,10 +2,10 @@
 
   <PropertyGroup>
     <TargetFramework>net462</TargetFramework>
-    <AssemblyName>SluttyHoe</AssemblyName>
-    <RootNamespace>SluttyHoe</RootNamespace>
+    <AssemblyName>MegaHoe</AssemblyName>
+    <RootNamespace>MegaHoe</RootNamespace>
     <Description>Enhanced Hoe and Cultivator with adjustable radius and terrain reset features</Description>
-    <Version>3.7.9</Version>
+    <Version>4.0.0</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>

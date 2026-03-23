@@ -1,11 +1,11 @@
-using HarmonyLib;
+﻿using HarmonyLib;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using UnityEngine;
 
-namespace SluttyHoe
+namespace MegaHoe
 {
     public enum BiomePaintType
     {
@@ -118,7 +118,7 @@ namespace SluttyHoe
                 }
             }
 
-            SluttyHoePlugin.Log($"Painted {painted} cells with biome {biome}");
+            MegaHoePlugin.Log($"Painted {painted} cells with biome {biome}");
         }
 
         public static bool TryGetOverride(Vector3 pos, out Heightmap.Biome biome)
@@ -130,11 +130,11 @@ namespace SluttyHoe
 
         public static void SetWorld(string worldName)
         {
-            SluttyHoePlugin.Log($"[BiomePaint] SetWorld called: '{worldName}' (current: '{_currentWorldName}')");
+            MegaHoePlugin.Log($"[BiomePaint] SetWorld called: '{worldName}' (current: '{_currentWorldName}')");
             if (string.IsNullOrEmpty(worldName)) return;
             if (_currentWorldName == worldName)
             {
-                SluttyHoePlugin.Log($"[BiomePaint] Same world, skipping reload (overrides: {_overrides.Count})");
+                MegaHoePlugin.Log($"[BiomePaint] Same world, skipping reload (overrides: {_overrides.Count})");
                 return;
             }
 
@@ -147,7 +147,7 @@ namespace SluttyHoe
 
         public static void OnWorldExit()
         {
-            SluttyHoePlugin.Log($"[BiomePaint] OnWorldExit: saving {_overrides.Count} overrides for '{_currentWorldName}'");
+            MegaHoePlugin.Log($"[BiomePaint] OnWorldExit: saving {_overrides.Count} overrides for '{_currentWorldName}'");
             Save();
             _overrides.Clear();
             _currentWorldName = "";
@@ -155,7 +155,7 @@ namespace SluttyHoe
 
         private static string GetSavePath()
         {
-            string dir = Path.Combine(BepInEx.Paths.ConfigPath, "SluttyHoe");
+            string dir = Path.Combine(BepInEx.Paths.ConfigPath, "MegaHoe");
             Directory.CreateDirectory(dir);
             return Path.Combine(dir, "biome_paint_" + _currentWorldName + ".dat");
         }
@@ -164,12 +164,12 @@ namespace SluttyHoe
         {
             if (string.IsNullOrEmpty(_currentWorldName))
             {
-                SluttyHoePlugin.Log($"[BiomeSave] Skipped: no world name set");
+                MegaHoePlugin.Log($"[BiomeSave] Skipped: no world name set");
                 return;
             }
             if (_overrides.Count == 0)
             {
-                SluttyHoePlugin.Log($"[BiomeSave] Skipped: no overrides to save");
+                MegaHoePlugin.Log($"[BiomeSave] Skipped: no overrides to save");
                 return;
             }
             try
@@ -185,11 +185,11 @@ namespace SluttyHoe
                         writer.Write((int)kvp.Value);
                     }
                 }
-                SluttyHoePlugin.Log($"[BiomeSave] Saved {_overrides.Count} overrides to: {path}");
+                MegaHoePlugin.Log($"[BiomeSave] Saved {_overrides.Count} overrides to: {path}");
             }
             catch (Exception ex)
             {
-                SluttyHoePlugin.LogError($"[BiomeSave] FAILED: {ex.Message}");
+                MegaHoePlugin.LogError($"[BiomeSave] FAILED: {ex.Message}");
             }
         }
 
@@ -198,14 +198,14 @@ namespace SluttyHoe
             _overrides.Clear();
             if (string.IsNullOrEmpty(_currentWorldName))
             {
-                SluttyHoePlugin.Log($"[BiomeLoad] Skipped: no world name set");
+                MegaHoePlugin.Log($"[BiomeLoad] Skipped: no world name set");
                 return;
             }
             string path = GetSavePath();
-            SluttyHoePlugin.Log($"[BiomeLoad] Looking for file: {path}");
+            MegaHoePlugin.Log($"[BiomeLoad] Looking for file: {path}");
             if (!File.Exists(path))
             {
-                SluttyHoePlugin.Log($"[BiomeLoad] File not found — no saved paint data");
+                MegaHoePlugin.Log($"[BiomeLoad] File not found â€” no saved paint data");
                 return;
             }
             try
@@ -221,11 +221,11 @@ namespace SluttyHoe
                         _overrides[key] = (Heightmap.Biome)biome;
                     }
                 }
-                SluttyHoePlugin.Log($"[BiomeLoad] SUCCESS: Loaded {_overrides.Count} overrides from {path}");
+                MegaHoePlugin.Log($"[BiomeLoad] SUCCESS: Loaded {_overrides.Count} overrides from {path}");
             }
             catch (Exception ex)
             {
-                SluttyHoePlugin.LogError($"[BiomeLoad] FAILED to read: {ex.Message}");
+                MegaHoePlugin.LogError($"[BiomeLoad] FAILED to read: {ex.Message}");
             }
         }
     }
@@ -248,11 +248,11 @@ namespace SluttyHoe
                 if (string.IsNullOrEmpty(worldName)) return;
 
                 BiomePaintManager.SetWorld(worldName);
-                SluttyHoePlugin.Log($"[Early Load] Biome paint data loaded for world '{worldName}' ({BiomePaintManager.OverrideCount} overrides)");
+                MegaHoePlugin.Log($"[Early Load] Biome paint data loaded for world '{worldName}' ({BiomePaintManager.OverrideCount} overrides)");
             }
             catch (Exception ex)
             {
-                SluttyHoePlugin.LogError($"Failed early biome paint load: {ex.Message}");
+                MegaHoePlugin.LogError($"Failed early biome paint load: {ex.Message}");
             }
         }
     }
@@ -290,11 +290,11 @@ namespace SluttyHoe
                 if (clearAllMethod != null)
                     clearAllMethod.Invoke(ClutterSystem.instance, null);
 
-                SluttyHoePlugin.Log($"Clutter fully cleared on spawn for {BiomePaintManager.OverrideCount} biome overrides");
+                MegaHoePlugin.Log($"Clutter fully cleared on spawn for {BiomePaintManager.OverrideCount} biome overrides");
             }
             catch (Exception ex)
             {
-                SluttyHoePlugin.LogError($"Failed to clear clutter on spawn: {ex.Message}");
+                MegaHoePlugin.LogError($"Failed to clear clutter on spawn: {ex.Message}");
             }
         }
     }
@@ -311,7 +311,7 @@ namespace SluttyHoe
         {
             if (BiomePaintManager.OverrideCount > 0)
             {
-                SluttyHoePlugin.Log("[BiomePaint] World save detected — saving biome paint data");
+                MegaHoePlugin.Log("[BiomePaint] World save detected â€” saving biome paint data");
                 BiomePaintManager.Save();
             }
         }
@@ -326,7 +326,7 @@ namespace SluttyHoe
         [HarmonyPrefix]
         public static void Prefix()
         {
-            SluttyHoePlugin.Log("[BiomePaint] ZNet.OnDestroy — saving biome paint data");
+            MegaHoePlugin.Log("[BiomePaint] ZNet.OnDestroy â€” saving biome paint data");
             BiomePaintManager.Save();
         }
     }
