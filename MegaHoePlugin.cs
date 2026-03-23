@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.0.0";
+        public const string PluginVersion = "4.0.1";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -37,18 +37,20 @@ namespace MegaHoe
             _logger = Logger;
             _logger.LogInfo($"{PluginName} v{PluginVersion} loading...");
 
-            TerrainFlattenKey = Config.Bind("Hotkeys", "TerrainFlattenKey", KeyCode.LeftControl, 
+            MigrateConfig(Config.ConfigFilePath);
+
+            TerrainFlattenKey = Config.Bind("1. Hotkeys", "TerrainFlattenKey", KeyCode.LeftControl, 
                 "Hold while using Hoe to flatten terrain to the height where you're standing");
-            TerrainResetKey = Config.Bind("Hotkeys", "TerrainResetKey", KeyCode.LeftAlt, 
+            TerrainResetKey = Config.Bind("1. Hotkeys", "TerrainResetKey", KeyCode.LeftAlt, 
                 "Hold while using Hoe to reset terrain to original world height");
-            OperationRadius = Config.Bind("Hoe", "OperationRadius", 4f, 
+            OperationRadius = Config.Bind("2. Hoe", "OperationRadius", 4f, 
                 "Radius for flatten/reset operations");
-            BiomePaintKey = Config.Bind("Hotkeys", "BiomePaintKey", KeyCode.LeftShift,
+            BiomePaintKey = Config.Bind("1. Hotkeys", "BiomePaintKey", KeyCode.LeftShift,
                 "Hold while using Hoe to paint biome grass");
-            BiomePaintCycleKey = Config.Bind("Hotkeys", "BiomePaintCycleKey", KeyCode.G,
+            BiomePaintCycleKey = Config.Bind("1. Hotkeys", "BiomePaintCycleKey", KeyCode.G,
                 "Press to cycle biome grass paint selection (while Hoe is equipped)");
 
-            DebugMode = Config.Bind("Debug", "DebugMode", false,
+            DebugMode = Config.Bind("3. Debug", "DebugMode", false,
                 "Enable verbose debug logging to BepInEx console/log");
 
             _config = Config;
@@ -106,6 +108,46 @@ namespace MegaHoe
                 _configWatcher = null;
             }
             _harmony?.UnpatchSelf();
+        }
+
+        private static void MigrateConfig(string configPath)
+        {
+            try
+            {
+                if (!File.Exists(configPath)) return;
+                string text = File.ReadAllText(configPath);
+                bool changed = false;
+
+                changed |= MigrateCfgSection(ref text, "Hotkeys", "1. Hotkeys");
+                changed |= MigrateCfgSection(ref text, "Hoe", "2. Hoe");
+                changed |= MigrateCfgSection(ref text, "Debug", "3. Debug");
+
+                if (changed)
+                    File.WriteAllText(configPath, text.TrimEnd() + "\n");
+            }
+            catch { }
+        }
+
+        private static bool MigrateCfgSection(ref string text, string oldName, string newName)
+        {
+            string oldHeader = "[" + oldName + "]";
+            int idx = text.IndexOf(oldHeader, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) return false;
+
+            int sectionEnd = text.IndexOf("\n[", idx + oldHeader.Length, StringComparison.Ordinal);
+
+            if (newName == null || text.IndexOf("[" + newName + "]", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                if (sectionEnd < 0)
+                    text = text.Substring(0, idx).TrimEnd('\r', '\n');
+                else
+                    text = text.Substring(0, idx) + text.Substring(sectionEnd + 1);
+            }
+            else
+            {
+                text = text.Remove(idx, oldHeader.Length).Insert(idx, "[" + newName + "]");
+            }
+            return true;
         }
 
         private void Update()
