@@ -5,7 +5,7 @@
     <AssemblyName>SluttyHoe</AssemblyName>
     <RootNamespace>SluttyHoe</RootNamespace>
     <Description>Enhanced Hoe and Cultivator with adjustable radius and terrain reset features</Description>
-    <Version>3.7.8</Version>
+    <Version>3.7.9</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
@@ -13,7 +13,7 @@
   <!-- Paths Configuration -->
   <PropertyGroup>
     <ValheimPath>C:\Program Files (x86)\Steam\steamapps\common\Valheim</ValheimPath>
-    <BepInExPath>C:\Users\Rik\AppData\Roaming\r2modmanPlus-local\Valheim\profiles\Valheim Min Mods\BepInEx</BepInExPath>
+    <BepInExPath>$(APPDATA)\MegaLoad\profiles\a01aed19fecf3a0d\BepInEx</BepInExPath>
   </PropertyGroup>
   <ItemGroup>
     <None Include=".github\copilot-instructions.md" />
@@ -66,11 +66,5 @@
   <ItemGroup>
     <Folder Include="InspectorTool\" />
   </ItemGroup>
-
-  <!-- Auto-copy to BepInEx plugins folder after build -->
-  <Target Name="CopyToPlugins" AfterTargets="Build" Condition="Exists('$(BepInExPath)\plugins')">
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BepInExPath)\plugins\SluttyHoe" />
-    <Message Text="Copied $(TargetFileName) to BepInEx plugins folder" Importance="High" />
-  </Target>
 
 </Project>

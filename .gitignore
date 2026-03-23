@@ -4,3 +4,6 @@ obj/
 *.user
 *.suo
 InspectorTool/
+
+# Maintenance reports
+maintenance-report.json
