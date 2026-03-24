@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.6.0";
+        public const string PluginVersion = "4.6.1";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -487,6 +487,7 @@ namespace MegaHoe
         }
 
         public static void Log(string message) { if (DebugMode.Value) _logger?.LogInfo(message); }
+        public static void LogAlways(string message) => _logger?.LogInfo(message);
         public static void LogWarning(string message) => _logger?.LogWarning(message);
         public static void LogError(string message) => _logger?.LogError(message);
 
@@ -531,9 +532,70 @@ namespace MegaHoe
             {
                 var player = Player.m_localPlayer;
                 if (player == null || __instance == null) return true;
-                if (!MegaHoePlugin.IsUsingHoeOrCultivator(player)) return true;
 
                 Vector3 toolPos = __instance.transform.position;
+                var settings = __instance.m_settings;
+
+                // Debug: log ALL terrain operations regardless of tool
+                if (MegaHoePlugin.DebugMode.Value && settings != null)
+                {
+                    string equippedTool = "unknown";
+                    if (player.GetInventory() != null)
+                    {
+                        foreach (var item in player.GetInventory().GetEquippedItems())
+                        {
+                            string name = item.m_shared.m_name ?? "";
+                            if (name.Contains("pickaxe") || name.Contains("hoe") || name.Contains("cultivator") ||
+                                name.Contains("Pickaxe") || name.Contains("Hoe") || name.Contains("Cultivator"))
+                            {
+                                equippedTool = name;
+                                break;
+                            }
+                        }
+                    }
+
+                    float terrainY;
+                    Heightmap.GetHeight(toolPos, out terrainY);
+                    float playerY;
+                    Heightmap.GetHeight(player.transform.position, out playerY);
+
+                    MegaHoePlugin.LogAlways($"[TerrainOp] Tool={equippedTool} Pos=({toolPos.x:F1},{toolPos.y:F1},{toolPos.z:F1}) TerrainH={terrainY:F2} PlayerH={playerY:F2}");
+                    MegaHoePlugin.LogAlways($"[TerrainOp] raise={settings.m_raise} (r={settings.m_raiseRadius:F1} delta={settings.m_raiseDelta:F2} power={settings.m_raisePower:F2})");
+                    MegaHoePlugin.LogAlways($"[TerrainOp] level={settings.m_level} (r={settings.m_levelRadius:F1} offset={settings.m_levelOffset:F2})");
+                    MegaHoePlugin.LogAlways($"[TerrainOp] smooth={settings.m_smooth} (r={settings.m_smoothRadius:F1} power={settings.m_smoothPower:F2})");
+                    MegaHoePlugin.LogAlways($"[TerrainOp] HeightBypass={MegaHoePlugin.HeightLimitBypassed} IsHoe={MegaHoePlugin.IsUsingHoeOrCultivator(player)}");
+
+                    // Dump TerrainComp deltas at this exact spot
+                    List<Heightmap> debugHmaps = new List<Heightmap>();
+                    Heightmap.FindHeightmap(toolPos, 2f, debugHmaps);
+                    foreach (var hm in debugHmaps)
+                    {
+                        if (hm == null) continue;
+                        TerrainComp tc = hm.GetAndCreateTerrainCompiler();
+                        if (tc == null) continue;
+                        float[] ld = TerrainModifier.GetField<float[]>(tc, "m_levelDelta");
+                        float[] sd = TerrainModifier.GetField<float[]>(tc, "m_smoothDelta");
+                        if (ld != null)
+                        {
+                            int w = hm.m_width;
+                            float sc = hm.m_scale;
+                            Vector3 hmPos = hm.transform.position;
+                            int cx = Mathf.RoundToInt((toolPos.x - hmPos.x) / sc + w / 2);
+                            int cz = Mathf.RoundToInt((toolPos.z - hmPos.z) / sc + w / 2);
+                            cx = Mathf.Clamp(cx, 0, w);
+                            cz = Mathf.Clamp(cz, 0, w);
+                            int idx = cz * (w + 1) + cx;
+                            if (idx >= 0 && idx < ld.Length)
+                            {
+                                float smoothVal = (sd != null && idx < sd.Length) ? sd[idx] : 0f;
+                                MegaHoePlugin.LogAlways($"[TerrainOp] Vertex({cx},{cz}) idx={idx} levelDelta={ld[idx]:F4} smoothDelta={smoothVal:F4} totalDelta={ld[idx] + smoothVal:F4}");
+                            }
+                        }
+                    }
+                }
+
+                if (!MegaHoePlugin.IsUsingHoeOrCultivator(player)) return true;
+
                 float radius = MegaHoePlugin.OperationRadius.Value;
 
                 // SHIFT + biome selected = Paint biome grass
@@ -621,21 +683,28 @@ namespace MegaHoe
                 // Height bypass: intercept normal hoe raise/level so we can apply without clamping
                 if (MegaHoePlugin.HeightLimitBypassed && __instance.m_settings != null)
                 {
-                    var settings = __instance.m_settings;
-                    if (settings.m_raise || settings.m_level)
+                    var bypassSettings = __instance.m_settings;
+                    MegaHoePlugin.LogAlways($"[HeightBypass] INTERCEPTING: raise={bypassSettings.m_raise} level={bypassSettings.m_level} smooth={bypassSettings.m_smooth}");
+                    if (bypassSettings.m_raise || bypassSettings.m_level)
                     {
-                        MegaHoePlugin.Log($"=== HEIGHT BYPASS INTERCEPT ===");
-                        MegaHoePlugin.Log($"Raise={settings.m_raise} (r={settings.m_raiseRadius:F1}, delta={settings.m_raiseDelta:F2}, power={settings.m_raisePower:F2})");
-                        MegaHoePlugin.Log($"Level={settings.m_level} (r={settings.m_levelRadius:F1}, offset={settings.m_levelOffset:F2})");
+                        MegaHoePlugin.LogAlways($"[HeightBypass] APPLYING UNCLAMPED: raise(r={bypassSettings.m_raiseRadius:F1} delta={bypassSettings.m_raiseDelta:F2}) level(r={bypassSettings.m_levelRadius:F1} offset={bypassSettings.m_levelOffset:F2})");
 
-                        TerrainModifier.ApplyUnclampedOperation(toolPos, settings);
+                        TerrainModifier.ApplyUnclampedOperation(toolPos, bypassSettings);
 
                         if (ClutterSystem.instance != null)
-                            ClutterSystem.instance.ResetGrass(toolPos, Mathf.Max(settings.m_raiseRadius, settings.m_levelRadius));
+                            ClutterSystem.instance.ResetGrass(toolPos, Mathf.Max(bypassSettings.m_raiseRadius, bypassSettings.m_levelRadius));
 
                         UnityEngine.Object.Destroy(__instance.gameObject);
                         return false;
                     }
+                    else
+                    {
+                        MegaHoePlugin.LogAlways($"[HeightBypass] PASSTHROUGH: operation has no raise/level, letting vanilla handle");
+                    }
+                }
+                else if (MegaHoePlugin.HeightLimitBypassed)
+                {
+                    MegaHoePlugin.LogAlways($"[HeightBypass] BYPASS ON but m_settings is null!");
                 }
 
                 return true;
@@ -669,7 +738,7 @@ namespace MegaHoe
             List<Heightmap> heightmaps = new List<Heightmap>();
             Heightmap.FindHeightmap(center, maxRadius, heightmaps);
 
-            MegaHoePlugin.Log($"[HeightBypass] Found {heightmaps.Count} heightmap(s)");
+            MegaHoePlugin.LogAlways($"[HeightBypass] Found {heightmaps.Count} heightmap(s)");
 
             foreach (Heightmap hmap in heightmaps)
             {
@@ -681,7 +750,13 @@ namespace MegaHoe
                 float[] levelDelta = GetPrivateField<float[]>(tc, "m_levelDelta");
                 float[] smoothDelta = GetPrivateField<float[]>(tc, "m_smoothDelta");
                 bool[] modifiedHeight = GetPrivateField<bool[]>(tc, "m_modifiedHeight");
-                if (levelDelta == null || modifiedHeight == null) continue;
+                if (levelDelta == null || modifiedHeight == null)
+                {
+                    MegaHoePlugin.LogAlways($"[HeightBypass] FAILED: levelDelta={levelDelta != null} modifiedHeight={modifiedHeight != null}");
+                    continue;
+                }
+
+                MegaHoePlugin.LogAlways($"[HeightBypass] Heightmap width={hmap.m_width} scale={hmap.m_scale} levelDelta.len={levelDelta.Length}");
 
                 int width = hmap.m_width;
                 float scale = hmap.m_scale;
@@ -768,7 +843,7 @@ namespace MegaHoe
 
                 if (modified > 0)
                 {
-                    MegaHoePlugin.Log($"[HeightBypass] Modified {modified} vertices");
+                    MegaHoePlugin.LogAlways($"[HeightBypass] Modified {modified} vertices on heightmap at ({hmPos.x:F0},{hmPos.z:F0})");
                     SetPrivateField(tc, "m_modified", true);
 
                     if (!_saveMethodSearched)
@@ -976,6 +1051,11 @@ namespace MegaHoe
             return modified;
         }
         
+        public static T GetField<T>(object obj, string fieldName)
+        {
+            return GetPrivateField<T>(obj, fieldName);
+        }
+
         private static T GetPrivateField<T>(object obj, string fieldName)
         {
             if (obj == null) return default(T);
