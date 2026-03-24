@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.6.1";
+        public const string PluginVersion = "4.6.2";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -250,28 +250,53 @@ namespace MegaHoe
                 // Find DoOperation(Vector3, Settings) on TerrainComp
                 var methods = typeof(TerrainComp).GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                 MethodInfo doOp = null;
+
+                // Log ALL TerrainComp methods that take Settings parameter
                 foreach (var m in methods)
                 {
                     var ps = m.GetParameters();
+                    if (ps.Length >= 1 && ps.Any(p => p.ParameterType == typeof(TerrainOp.Settings)))
+                    {
+                        _logger.LogInfo($"[HeightBypass] Found candidate: {m.Name}({string.Join(", ", ps.Select(p => p.ParameterType.Name + " " + p.Name))}) returns {m.ReturnType.Name}");
+                    }
                     if (ps.Length >= 2 &&
                         ps[0].ParameterType == typeof(Vector3) &&
                         ps[1].ParameterType == typeof(TerrainOp.Settings))
                     {
                         doOp = m;
-                        break;
                     }
                 }
 
                 if (doOp != null)
                 {
+                    _logger.LogInfo($"[HeightBypass] Patching: TerrainComp.{doOp.Name}");
+
+                    // Dump IL opcodes to see what we're working with
+                    try
+                    {
+                        var body = doOp.GetMethodBody();
+                        if (body != null)
+                        {
+                            var il = body.GetILAsByteArray();
+                            _logger.LogInfo($"[HeightBypass] Method IL size: {il?.Length ?? 0} bytes");
+                        }
+                    }
+                    catch { }
+
                     var transpiler = new HarmonyMethod(typeof(TerrainComp_DoOperation_Patch), "Transpiler");
                     _harmony.Patch(doOp, transpiler: transpiler);
                     applied++;
-                    Log($"Patched TerrainComp.{doOp.Name} with height limit bypass transpiler");
+                    _logger.LogInfo($"[HeightBypass] Transpiler applied. Replaced {TerrainComp_DoOperation_Patch.ReplacedCount} Mathf.Clamp calls");
                 }
                 else
                 {
-                    _logger.LogWarning("TerrainComp.DoOperation(Vector3, Settings) not found");
+                    _logger.LogWarning("[HeightBypass] TerrainComp.DoOperation(Vector3, Settings) NOT FOUND!");
+                    _logger.LogWarning($"[HeightBypass] Total TerrainComp methods: {methods.Length}");
+                    foreach (var m in methods.Take(30))
+                    {
+                        var ps = m.GetParameters();
+                        _logger.LogInfo($"[HeightBypass]   {m.Name}({string.Join(", ", ps.Select(p => p.ParameterType.Name))})");
+                    }
                 }
             }
             catch (Exception ex)
@@ -441,14 +466,17 @@ namespace MegaHoe
             float width = 280f;
             float height = 35f;
             float x = (Screen.width - width) / 2f;
-            float y = Screen.height - 220f;
+            // Stack from top of the "safe zone" above game HUD (hotbar area is ~100px from bottom)
+            float baseY = Screen.height * 0.65f;
+            float currentY = baseY;
             Color oldBg = GUI.backgroundColor;
 
             // Height limit bypass indicator
             if (showHeightBypass)
             {
                 GUI.backgroundColor = new Color(1f, 0.3f, 0.3f, 0.85f);
-                GUI.Box(new Rect(x, y - (showBiome ? height + 6f : 0f), width, height), "Height Limit Bypass: ON", _cachedBoxStyle);
+                GUI.Box(new Rect(x, currentY, width, height), "Height Limit Bypass: ON", _cachedBoxStyle);
+                currentY += height + 4f;
             }
 
             // Biome paint indicator
@@ -457,12 +485,13 @@ namespace MegaHoe
                 string text = "Grass Paint: " + BiomePaintManager.GetDisplayName(BiomePaintManager.SelectedBiome);
                 Color biomeColor = BiomePaintManager.GetBiomeColor(BiomePaintManager.SelectedBiome);
                 GUI.backgroundColor = new Color(biomeColor.r, biomeColor.g, biomeColor.b, 0.85f);
-                GUI.Box(new Rect(x, y, width, height), text, _cachedBoxStyle);
+                GUI.Box(new Rect(x, currentY, width, height), text, _cachedBoxStyle);
+                currentY += height + 2f;
             }
 
             GUI.backgroundColor = oldBg;
             string hints = "SHIFT+Click = Paint | G = Cycle | H = Height Bypass";
-            GUI.Label(new Rect(x, y + height + 2f, width, 18f), hints, _cachedHintStyle);
+            GUI.Label(new Rect(x, currentY, width, 18f), hints, _cachedHintStyle);
         }
 
         private static string GetWorldName()
@@ -680,31 +709,16 @@ namespace MegaHoe
                     return false;
                 }
 
-                // Height bypass: intercept normal hoe raise/level so we can apply without clamping
-                if (MegaHoePlugin.HeightLimitBypassed && __instance.m_settings != null)
+                // Height bypass: just let vanilla handle it — the transpiler disables Mathf.Clamp
+                // in DoOperation when HeightLimitBypassed is true. Log for diagnosis.
+                if (MegaHoePlugin.HeightLimitBypassed)
                 {
-                    var bypassSettings = __instance.m_settings;
-                    MegaHoePlugin.LogAlways($"[HeightBypass] INTERCEPTING: raise={bypassSettings.m_raise} level={bypassSettings.m_level} smooth={bypassSettings.m_smooth}");
-                    if (bypassSettings.m_raise || bypassSettings.m_level)
+                    MegaHoePlugin.LogAlways($"[HeightBypass] PASSTHROUGH to vanilla (transpiler handles unclamping). settings null={__instance.m_settings == null}");
+                    if (__instance.m_settings != null)
                     {
-                        MegaHoePlugin.LogAlways($"[HeightBypass] APPLYING UNCLAMPED: raise(r={bypassSettings.m_raiseRadius:F1} delta={bypassSettings.m_raiseDelta:F2}) level(r={bypassSettings.m_levelRadius:F1} offset={bypassSettings.m_levelOffset:F2})");
-
-                        TerrainModifier.ApplyUnclampedOperation(toolPos, bypassSettings);
-
-                        if (ClutterSystem.instance != null)
-                            ClutterSystem.instance.ResetGrass(toolPos, Mathf.Max(bypassSettings.m_raiseRadius, bypassSettings.m_levelRadius));
-
-                        UnityEngine.Object.Destroy(__instance.gameObject);
-                        return false;
+                        var s = __instance.m_settings;
+                        MegaHoePlugin.LogAlways($"[HeightBypass] raise={s.m_raise}(r={s.m_raiseRadius:F1} d={s.m_raiseDelta:F2}) level={s.m_level}(r={s.m_levelRadius:F1} o={s.m_levelOffset:F2})");
                     }
-                    else
-                    {
-                        MegaHoePlugin.LogAlways($"[HeightBypass] PASSTHROUGH: operation has no raise/level, letting vanilla handle");
-                    }
-                }
-                else if (MegaHoePlugin.HeightLimitBypassed)
-                {
-                    MegaHoePlugin.LogAlways($"[HeightBypass] BYPASS ON but m_settings is null!");
                 }
 
                 return true;

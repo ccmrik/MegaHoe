@@ -504,16 +504,22 @@ namespace MegaHoe
     /// </summary>
     public static class TerrainComp_DoOperation_Patch
     {
+        private static int _replacedCount = -1;
+
+        public static int ReplacedCount => _replacedCount;
+
         public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
         {
-            var clampMethod = AccessTools.Method(typeof(Mathf), "Clamp",
+            var clampMethodF = AccessTools.Method(typeof(Mathf), "Clamp",
                 new[] { typeof(float), typeof(float), typeof(float) });
             var replacement = AccessTools.Method(typeof(TerrainComp_DoOperation_Patch), "ConditionalClamp");
 
             int replaced = 0;
-            foreach (var instruction in instructions)
+            var instructionList = new List<CodeInstruction>(instructions);
+            for (int i = 0; i < instructionList.Count; i++)
             {
-                if (clampMethod != null && instruction.Calls(clampMethod))
+                var instruction = instructionList[i];
+                if (clampMethodF != null && instruction.Calls(clampMethodF))
                 {
                     instruction.operand = replacement;
                     replaced++;
@@ -521,7 +527,9 @@ namespace MegaHoe
                 yield return instruction;
             }
 
-            MegaHoePlugin.Log($"[HeightBypass] Transpiler replaced {replaced} Mathf.Clamp call(s) in DoOperation");
+            _replacedCount = replaced;
+            // Force-log (not behind DebugMode) so we always see this at startup
+            MegaHoePlugin.LogAlways($"[HeightBypass] Transpiler replaced {replaced} Mathf.Clamp call(s) in DoOperation");
         }
 
         public static float ConditionalClamp(float value, float min, float max)
