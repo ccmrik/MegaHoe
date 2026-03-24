@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.8.0";
+        public const string PluginVersion = "4.8.1";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
