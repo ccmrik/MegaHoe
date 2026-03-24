@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.2.0";
+        public const string PluginVersion = "4.3.0";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -29,7 +29,10 @@ namespace MegaHoe
         public static ConfigEntry<KeyCode> BiomePaintKey;
         public static ConfigEntry<KeyCode> BiomePaintCycleKey;
         public static ConfigEntry<float> BiomePaintRadius;
+        public static ConfigEntry<KeyCode> HeightLimitBypassKey;
         public static ConfigEntry<bool> DebugMode;
+
+        public static bool HeightLimitBypassed = false;
 
         private static string _lastWorldName = "";
 
@@ -59,6 +62,8 @@ namespace MegaHoe
                     new ConfigDescription("Radius for flatten/reset operations", new AcceptableValueRange<float>(1f, 20f)));
                 BiomePaintRadius = Config.Bind("2. Hoe", "BiomePaintRadius", 4f,
                     new ConfigDescription("Radius for biome grass painting", new AcceptableValueRange<float>(1f, 30f)));
+                HeightLimitBypassKey = Config.Bind("1. Hotkeys", "HeightLimitBypassKey", KeyCode.H,
+                    "Press to toggle height limit bypass (while Hoe is equipped) - removes terrain raise/dig caps");
 
                 DebugMode = Config.Bind("3. Debug", "DebugMode", false,
                     "Enable verbose debug logging to BepInEx console/log");
@@ -112,6 +117,9 @@ namespace MegaHoe
 
             // Heightmap.GetBiome patch — changes ground TEXTURE (lava, snow, etc.)
             applied += PatchHeightmapGetBiome();
+
+            // TerrainComp.DoOperation — height limit bypass
+            applied += PatchTerrainCompDoOperation();
 
             _logger.LogInfo($"Harmony patches: {applied} applied, {failed} failed");
         }
@@ -201,6 +209,45 @@ namespace MegaHoe
             catch (Exception ex)
             {
                 _logger.LogWarning($"Patch Heightmap.GetBiome failed: {ex.Message}");
+            }
+            return applied;
+        }
+
+        private int PatchTerrainCompDoOperation()
+        {
+            int applied = 0;
+            try
+            {
+                // Find DoOperation(Vector3, Settings) on TerrainComp
+                var methods = typeof(TerrainComp).GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                MethodInfo doOp = null;
+                foreach (var m in methods)
+                {
+                    var ps = m.GetParameters();
+                    if (ps.Length >= 2 &&
+                        ps[0].ParameterType == typeof(Vector3) &&
+                        ps[1].ParameterType == typeof(TerrainOp.Settings))
+                    {
+                        doOp = m;
+                        break;
+                    }
+                }
+
+                if (doOp != null)
+                {
+                    var transpiler = new HarmonyMethod(typeof(TerrainComp_DoOperation_Patch), "Transpiler");
+                    _harmony.Patch(doOp, transpiler: transpiler);
+                    applied++;
+                    Log($"Patched TerrainComp.{doOp.Name} with height limit bypass transpiler");
+                }
+                else
+                {
+                    _logger.LogWarning("TerrainComp.DoOperation(Vector3, Settings) not found");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Patch TerrainComp.DoOperation failed: {ex.Message}");
             }
             return applied;
         }
@@ -313,7 +360,7 @@ namespace MegaHoe
                 _lastWorldName = "";
             }
 
-            // Biome paint cycling
+            // Biome paint cycling + height limit toggle
             var player = Player.m_localPlayer;
             if (player != null && IsUsingHoeOrCultivator(player))
             {
@@ -322,6 +369,13 @@ namespace MegaHoe
                     BiomePaintManager.CycleSelection();
                     string biomeName = BiomePaintManager.GetDisplayName(BiomePaintManager.SelectedBiome);
                     player.Message(MessageHud.MessageType.Center, "Grass Paint: " + biomeName);
+                }
+
+                if (Input.GetKeyDown(HeightLimitBypassKey.Value))
+                {
+                    HeightLimitBypassed = !HeightLimitBypassed;
+                    string state = HeightLimitBypassed ? "ON - No height limits!" : "OFF";
+                    player.Message(MessageHud.MessageType.Center, "Height Limit Bypass: " + state);
                 }
             }
         }
@@ -333,10 +387,10 @@ namespace MegaHoe
         {
             var player = Player.m_localPlayer;
             if (player == null || !IsUsingHoeOrCultivator(player)) return;
-            if (BiomePaintManager.SelectedBiome == BiomePaintType.None) return;
 
-            string text = "Grass Paint: " + BiomePaintManager.GetDisplayName(BiomePaintManager.SelectedBiome);
-            Color biomeColor = BiomePaintManager.GetBiomeColor(BiomePaintManager.SelectedBiome);
+            bool showBiome = BiomePaintManager.SelectedBiome != BiomePaintType.None;
+            bool showHeightBypass = HeightLimitBypassed;
+            if (!showBiome && !showHeightBypass) return;
 
             if (_cachedBoxStyle == null)
             {
@@ -355,17 +409,31 @@ namespace MegaHoe
                 _cachedHintStyle.normal.textColor = new Color(1f, 1f, 1f, 0.6f);
             }
 
-            float width = 260f;
+            float width = 280f;
             float height = 35f;
             float x = (Screen.width - width) / 2f;
             float y = Screen.height - 130f;
-
             Color oldBg = GUI.backgroundColor;
-            GUI.backgroundColor = new Color(biomeColor.r, biomeColor.g, biomeColor.b, 0.85f);
-            GUI.Box(new Rect(x, y, width, height), text, _cachedBoxStyle);
-            GUI.backgroundColor = oldBg;
 
-            GUI.Label(new Rect(x, y + height + 2f, width, 18f), "SHIFT+Click = Paint | G = Cycle", _cachedHintStyle);
+            // Height limit bypass indicator
+            if (showHeightBypass)
+            {
+                GUI.backgroundColor = new Color(1f, 0.3f, 0.3f, 0.85f);
+                GUI.Box(new Rect(x, y - (showBiome ? height + 6f : 0f), width, height), "Height Limit Bypass: ON", _cachedBoxStyle);
+            }
+
+            // Biome paint indicator
+            if (showBiome)
+            {
+                string text = "Grass Paint: " + BiomePaintManager.GetDisplayName(BiomePaintManager.SelectedBiome);
+                Color biomeColor = BiomePaintManager.GetBiomeColor(BiomePaintManager.SelectedBiome);
+                GUI.backgroundColor = new Color(biomeColor.r, biomeColor.g, biomeColor.b, 0.85f);
+                GUI.Box(new Rect(x, y, width, height), text, _cachedBoxStyle);
+            }
+
+            GUI.backgroundColor = oldBg;
+            string hints = "SHIFT+Click = Paint | G = Cycle | H = Height Bypass";
+            GUI.Label(new Rect(x, y + height + 2f, width, 18f), hints, _cachedHintStyle);
         }
 
         private static string GetWorldName()

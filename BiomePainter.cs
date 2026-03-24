@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Reflection.Emit;
 using UnityEngine;
 
 namespace MegaHoe
@@ -447,6 +448,42 @@ namespace MegaHoe
             {
                 __result = overrideBiome;
             }
+        }
+    }
+
+    /// <summary>
+    /// Transpiler patch for TerrainComp.DoOperation to bypass height limits.
+    /// Replaces Mathf.Clamp(float,float,float) calls with a conditional version
+    /// that skips clamping when HeightLimitBypassed is active.
+    /// Patched manually in MegaHoePlugin.PatchTerrainCompDoOperation().
+    /// </summary>
+    public static class TerrainComp_DoOperation_Patch
+    {
+        public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            var clampMethod = AccessTools.Method(typeof(Mathf), "Clamp",
+                new[] { typeof(float), typeof(float), typeof(float) });
+            var replacement = AccessTools.Method(typeof(TerrainComp_DoOperation_Patch), "ConditionalClamp");
+
+            int replaced = 0;
+            foreach (var instruction in instructions)
+            {
+                if (clampMethod != null && instruction.Calls(clampMethod))
+                {
+                    instruction.operand = replacement;
+                    replaced++;
+                }
+                yield return instruction;
+            }
+
+            MegaHoePlugin.Log($"[HeightBypass] Transpiler replaced {replaced} Mathf.Clamp call(s) in DoOperation");
+        }
+
+        public static float ConditionalClamp(float value, float min, float max)
+        {
+            if (MegaHoePlugin.HeightLimitBypassed)
+                return value;
+            return Mathf.Clamp(value, min, max);
         }
     }
 }
