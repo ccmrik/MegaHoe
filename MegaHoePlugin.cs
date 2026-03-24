@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.1.0";
+        public const string PluginVersion = "4.1.1";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -40,8 +40,11 @@ namespace MegaHoe
 
             try
             {
-                MigrateConfig(Config.ConfigFilePath);
-                Config.Reload();
+                if (File.Exists(Config.ConfigFilePath))
+                {
+                    MigrateConfig(Config.ConfigFilePath);
+                    Config.Reload();
+                }
 
                 TerrainFlattenKey = Config.Bind("1. Hotkeys", "TerrainFlattenKey", KeyCode.LeftControl, 
                     "Hold while using Hoe to flatten terrain to the height where you're standing");
