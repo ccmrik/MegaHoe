@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.8.1";
+        public const string PluginVersion = "4.8.2";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -666,24 +666,18 @@ namespace MegaHoe
                     return false;
                 }
 
-                // CTRL = Level terrain to player's ground height using game's own system
+                // CTRL = Level terrain to player's ground height
                 if (Input.GetKey(MegaHoePlugin.TerrainFlattenKey.Value))
                 {
                     // Get player's ground height
                     float playerGroundHeight;
                     Heightmap.GetHeight(player.transform.position, out playerGroundHeight);
                     
-                    // Get terrain height at tool position for comparison
-                    float toolTerrainHeight;
-                    Heightmap.GetHeight(toolPos, out toolTerrainHeight);
-                    
                     MegaHoePlugin.Log($"=== FLATTEN TO PLAYER HEIGHT ===");
                     MegaHoePlugin.Log($"Player ground: {playerGroundHeight:F2}");
-                    MegaHoePlugin.Log($"Tool terrain: {toolTerrainHeight:F2}");
-                    MegaHoePlugin.Log($"Difference: {toolTerrainHeight - playerGroundHeight:F2}");
                     
-                    // Use the game's DoOperation method directly
-                    TerrainModifier.LevelTerrainUsingGameSystem(toolPos, radius, playerGroundHeight);
+                    // Use direct vertex manipulation to avoid smoothDelta drift
+                    TerrainModifier.LevelTerrainDirect(toolPos, radius, playerGroundHeight);
                     
                     player.Message(MessageHud.MessageType.Center, $"Flattened to {playerGroundHeight:F1}m");
                     
@@ -946,6 +940,109 @@ namespace MegaHoe
                     {
                         MegaHoePlugin.Log($"  {m.Name}({string.Join(", ", m.GetParameters().Select(p => p.ParameterType.Name))})");
                     }
+                }
+            }
+            
+            // Reset grass
+            if (ClutterSystem.instance != null)
+                ClutterSystem.instance.ResetGrass(center, radius);
+        }
+        
+        /// <summary>
+        /// Level terrain by directly manipulating vertex deltas.
+        /// Unlike the game's DoOperation, this properly handles m_smoothDelta to prevent
+        /// height drift on repeated level operations (smoothDelta was being double-counted).
+        /// </summary>
+        public static void LevelTerrainDirect(Vector3 center, float radius, float targetHeight)
+        {
+            List<Heightmap> heightmaps = new List<Heightmap>();
+            Heightmap.FindHeightmap(center, radius + 5f, heightmaps);
+            
+            MegaHoePlugin.Log($"Level direct: target={targetHeight:F2}, radius={radius:F1}, hmaps={heightmaps.Count}");
+            
+            foreach (Heightmap hmap in heightmaps)
+            {
+                if (hmap == null) continue;
+                
+                TerrainComp tc = hmap.GetAndCreateTerrainCompiler();
+                if (tc == null) continue;
+                
+                float[] levelDelta = GetPrivateField<float[]>(tc, "m_levelDelta");
+                float[] smoothDelta = GetPrivateField<float[]>(tc, "m_smoothDelta");
+                bool[] modifiedHeight = GetPrivateField<bool[]>(tc, "m_modifiedHeight");
+                
+                if (levelDelta == null || modifiedHeight == null) continue;
+                
+                int width = hmap.m_width;
+                float scale = hmap.m_scale;
+                Vector3 hmPos = hmap.transform.position;
+                int modified = 0;
+                
+                for (int z = 0; z <= width; z++)
+                {
+                    for (int x = 0; x <= width; x++)
+                    {
+                        float wx = hmPos.x + (x - width / 2) * scale;
+                        float wz = hmPos.z + (z - width / 2) * scale;
+                        float dx = wx - center.x;
+                        float dz = wz - center.z;
+                        float distSq = dx * dx + dz * dz;
+                        if (distSq > radius * radius) continue;
+                        
+                        int idx = z * (width + 1) + x;
+                        if (idx < 0 || idx >= levelDelta.Length) continue;
+                        
+                        // Get existing smooth delta for this vertex
+                        float curSmooth = (smoothDelta != null && idx < smoothDelta.Length) ? smoothDelta[idx] : 0f;
+                        
+                        // Compute base world-gen height: terrain height minus all deltas
+                        float terrainY;
+                        Heightmap.GetHeight(new Vector3(wx, 0f, wz), out terrainY);
+                        float baseY = terrainY - levelDelta[idx] - curSmooth;
+                        
+                        // Total delta needed to reach target from world-gen base
+                        float desiredDelta = targetHeight - baseY;
+                        
+                        // Edge blending for smooth border transition
+                        float dist = Mathf.Sqrt(distSq);
+                        float blend = 1f;
+                        float edgeStart = radius * 0.8f;
+                        if (dist > edgeStart)
+                        {
+                            blend = 1f - (dist - edgeStart) / (radius - edgeStart);
+                            blend = Mathf.Clamp01(blend);
+                            blend = blend * blend * (3f - 2f * blend); // smoothstep
+                        }
+                        
+                        // Blend total delta from current toward desired
+                        float currentTotal = levelDelta[idx] + curSmooth;
+                        float newTotal = Mathf.Lerp(currentTotal, desiredDelta, blend);
+                        
+                        // Blend smoothDelta toward zero (absorb into levelDelta)
+                        float newSmooth = Mathf.Lerp(curSmooth, 0f, blend);
+                        
+                        // levelDelta carries the remainder so total is preserved
+                        levelDelta[idx] = newTotal - newSmooth;
+                        if (smoothDelta != null && idx < smoothDelta.Length)
+                            smoothDelta[idx] = newSmooth;
+                        
+                        modifiedHeight[idx] = true;
+                        modified++;
+                    }
+                }
+                
+                if (modified > 0)
+                {
+                    MegaHoePlugin.Log($"Leveled {modified} vertices to {targetHeight:F2}m");
+                    SetPrivateField(tc, "m_modified", true);
+                    
+                    if (!_saveMethodSearched)
+                    {
+                        _saveMethodSearched = true;
+                        _saveMethod = typeof(TerrainComp).GetMethod("Save", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    }
+                    _saveMethod?.Invoke(tc, null);
+                    hmap.Poke(true);
                 }
             }
             
