@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.7.0";
+        public const string PluginVersion = "4.8.0";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -247,9 +247,11 @@ namespace MegaHoe
             int applied = 0;
             try
             {
-                // The height clamping lives inside LevelTerrain, RaiseTerrain, SmoothTerrain
-                // (NOT in DoOperation/InternalDoOperation which are just dispatchers)
-                string[] targetNames = { "LevelTerrain", "RaiseTerrain", "SmoothTerrain" };
+                // Height clamping is in TWO layers:
+                // 1. Storage: LevelTerrain/RaiseTerrain/SmoothTerrain clamp m_levelDelta to ±8, m_smoothDelta to ±1
+                // 2. Rendering: ApplyToHeightmap clamps final height to baseHeight ±8
+                // Must bypass BOTH layers for unlimited height to work
+                string[] targetNames = { "LevelTerrain", "RaiseTerrain", "SmoothTerrain", "ApplyToHeightmap" };
                 var allMethods = typeof(TerrainComp).GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
 
                 foreach (string name in targetNames)
