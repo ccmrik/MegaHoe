@@ -498,45 +498,100 @@ namespace MegaHoe
 
     /// <summary>
     /// Transpiler patch for TerrainComp.DoOperation to bypass height limits.
-    /// Replaces Mathf.Clamp(float,float,float) calls with a conditional version
-    /// that skips clamping when HeightLimitBypassed is active.
+    /// Replaces Mathf.Clamp, Mathf.Min, Mathf.Max, Math.Min, Math.Max calls
+    /// with conditional versions that skip when HeightLimitBypassed is active.
     /// Patched manually in MegaHoePlugin.PatchTerrainCompDoOperation().
     /// </summary>
     public static class TerrainComp_DoOperation_Patch
     {
-        private static int _replacedCount = -1;
+        private static int _lastReplacedCount = -1;
 
-        public static int ReplacedCount => _replacedCount;
+        public static int LastReplacedCount => _lastReplacedCount;
 
         public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
         {
-            var clampMethodF = AccessTools.Method(typeof(Mathf), "Clamp",
-                new[] { typeof(float), typeof(float), typeof(float) });
-            var replacement = AccessTools.Method(typeof(TerrainComp_DoOperation_Patch), "ConditionalClamp");
+            // Target methods to replace
+            var mathfClamp = AccessTools.Method(typeof(Mathf), "Clamp", new[] { typeof(float), typeof(float), typeof(float) });
+            var mathfMin = AccessTools.Method(typeof(Mathf), "Min", new[] { typeof(float), typeof(float) });
+            var mathfMax = AccessTools.Method(typeof(Mathf), "Max", new[] { typeof(float), typeof(float) });
+            var mathMin = AccessTools.Method(typeof(System.Math), "Min", new[] { typeof(float), typeof(float) });
+            var mathMax = AccessTools.Method(typeof(System.Math), "Max", new[] { typeof(float), typeof(float) });
+
+            // Replacements
+            var replClamp = AccessTools.Method(typeof(TerrainComp_DoOperation_Patch), "ConditionalClamp");
+            var replMin = AccessTools.Method(typeof(TerrainComp_DoOperation_Patch), "ConditionalMin");
+            var replMax = AccessTools.Method(typeof(TerrainComp_DoOperation_Patch), "ConditionalMax");
 
             int replaced = 0;
-            var instructionList = new List<CodeInstruction>(instructions);
-            for (int i = 0; i < instructionList.Count; i++)
+            var allCalls = new List<string>();
+
+            foreach (var instruction in instructions)
             {
-                var instruction = instructionList[i];
-                if (clampMethodF != null && instruction.Calls(clampMethodF))
+                // Log all Call/Callvirt operands for diagnosis
+                if ((instruction.opcode == System.Reflection.Emit.OpCodes.Call ||
+                     instruction.opcode == System.Reflection.Emit.OpCodes.Callvirt) &&
+                    instruction.operand is MethodInfo mi)
                 {
-                    instruction.operand = replacement;
-                    replaced++;
+                    allCalls.Add($"{mi.DeclaringType?.Name}.{mi.Name}");
                 }
+
+                bool patched = false;
+                if (mathfClamp != null && instruction.Calls(mathfClamp))
+                {
+                    instruction.operand = replClamp;
+                    replaced++;
+                    patched = true;
+                }
+                else if (mathfMin != null && instruction.Calls(mathfMin))
+                {
+                    instruction.operand = replMin;
+                    replaced++;
+                    patched = true;
+                }
+                else if (mathfMax != null && instruction.Calls(mathfMax))
+                {
+                    instruction.operand = replMax;
+                    replaced++;
+                    patched = true;
+                }
+                else if (mathMin != null && instruction.Calls(mathMin))
+                {
+                    instruction.operand = replMin;
+                    replaced++;
+                    patched = true;
+                }
+                else if (mathMax != null && instruction.Calls(mathMax))
+                {
+                    instruction.operand = replMax;
+                    replaced++;
+                    patched = true;
+                }
+
                 yield return instruction;
             }
 
-            _replacedCount = replaced;
-            // Force-log (not behind DebugMode) so we always see this at startup
-            MegaHoePlugin.LogAlways($"[HeightBypass] Transpiler replaced {replaced} Mathf.Clamp call(s) in DoOperation");
+            _lastReplacedCount = replaced;
+
+            // Dump ALL method calls found in the IL for diagnosis
+            MegaHoePlugin.LogAlways($"[HeightBypass] Transpiler: {replaced} replacements. All calls in method: {string.Join(", ", allCalls)}");
         }
 
         public static float ConditionalClamp(float value, float min, float max)
         {
-            if (MegaHoePlugin.HeightLimitBypassed)
-                return value;
+            if (MegaHoePlugin.HeightLimitBypassed) return value;
             return Mathf.Clamp(value, min, max);
+        }
+
+        public static float ConditionalMin(float a, float b)
+        {
+            if (MegaHoePlugin.HeightLimitBypassed) return a;
+            return Mathf.Min(a, b);
+        }
+
+        public static float ConditionalMax(float a, float b)
+        {
+            if (MegaHoePlugin.HeightLimitBypassed) return a;
+            return Mathf.Max(a, b);
         }
     }
 

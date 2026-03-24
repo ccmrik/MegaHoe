@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.6.2";
+        public const string PluginVersion = "4.6.3";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -247,52 +247,51 @@ namespace MegaHoe
             int applied = 0;
             try
             {
-                // Find DoOperation(Vector3, Settings) on TerrainComp
                 var methods = typeof(TerrainComp).GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                MethodInfo doOp = null;
+                var candidates = new List<MethodInfo>();
 
-                // Log ALL TerrainComp methods that take Settings parameter
+                // Find ALL methods that take (Vector3, TerrainOp.Settings)
                 foreach (var m in methods)
                 {
                     var ps = m.GetParameters();
-                    if (ps.Length >= 1 && ps.Any(p => p.ParameterType == typeof(TerrainOp.Settings)))
-                    {
-                        _logger.LogInfo($"[HeightBypass] Found candidate: {m.Name}({string.Join(", ", ps.Select(p => p.ParameterType.Name + " " + p.Name))}) returns {m.ReturnType.Name}");
-                    }
                     if (ps.Length >= 2 &&
                         ps[0].ParameterType == typeof(Vector3) &&
                         ps[1].ParameterType == typeof(TerrainOp.Settings))
                     {
-                        doOp = m;
-                    }
-                }
-
-                if (doOp != null)
-                {
-                    _logger.LogInfo($"[HeightBypass] Patching: TerrainComp.{doOp.Name}");
-
-                    // Dump IL opcodes to see what we're working with
-                    try
-                    {
-                        var body = doOp.GetMethodBody();
-                        if (body != null)
+                        candidates.Add(m);
+                        try
                         {
-                            var il = body.GetILAsByteArray();
-                            _logger.LogInfo($"[HeightBypass] Method IL size: {il?.Length ?? 0} bytes");
+                            var body = m.GetMethodBody();
+                            int ilSize = body?.GetILAsByteArray()?.Length ?? 0;
+                            _logger.LogInfo($"[HeightBypass] Candidate: {m.Name} IL={ilSize} bytes");
+                        }
+                        catch
+                        {
+                            _logger.LogInfo($"[HeightBypass] Candidate: {m.Name} (could not read IL)");
                         }
                     }
-                    catch { }
-
-                    var transpiler = new HarmonyMethod(typeof(TerrainComp_DoOperation_Patch), "Transpiler");
-                    _harmony.Patch(doOp, transpiler: transpiler);
-                    applied++;
-                    _logger.LogInfo($"[HeightBypass] Transpiler applied. Replaced {TerrainComp_DoOperation_Patch.ReplacedCount} Mathf.Clamp calls");
                 }
-                else
+
+                // Patch ALL candidates — the big one is where the real logic lives
+                foreach (var doOp in candidates)
                 {
-                    _logger.LogWarning("[HeightBypass] TerrainComp.DoOperation(Vector3, Settings) NOT FOUND!");
-                    _logger.LogWarning($"[HeightBypass] Total TerrainComp methods: {methods.Length}");
-                    foreach (var m in methods.Take(30))
+                    try
+                    {
+                        var transpiler = new HarmonyMethod(typeof(TerrainComp_DoOperation_Patch), "Transpiler");
+                        _harmony.Patch(doOp, transpiler: transpiler);
+                        applied++;
+                        _logger.LogInfo($"[HeightBypass] Patched {doOp.Name}: replaced {TerrainComp_DoOperation_Patch.LastReplacedCount} clamp-like calls");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning($"[HeightBypass] Failed to patch {doOp.Name}: {ex.Message}");
+                    }
+                }
+
+                if (candidates.Count == 0)
+                {
+                    _logger.LogWarning("[HeightBypass] No DoOperation candidates found!");
+                    foreach (var m in methods.Take(40))
                     {
                         var ps = m.GetParameters();
                         _logger.LogInfo($"[HeightBypass]   {m.Name}({string.Join(", ", ps.Select(p => p.ParameterType.Name))})");
@@ -466,9 +465,14 @@ namespace MegaHoe
             float width = 280f;
             float height = 35f;
             float x = (Screen.width - width) / 2f;
-            // Stack from top of the "safe zone" above game HUD (hotbar area is ~100px from bottom)
-            float baseY = Screen.height * 0.65f;
-            float currentY = baseY;
+            // Position above the game's "Level Ground" / tool action text
+            // Game text sits around 72-78% screen height, so we go above that
+            float hintsHeight = 18f;
+            float totalHeight = hintsHeight;
+            if (showBiome) totalHeight += height + 4f;
+            if (showHeightBypass) totalHeight += height + 4f;
+            float startY = Screen.height * 0.55f - totalHeight;
+            float currentY = startY;
             Color oldBg = GUI.backgroundColor;
 
             // Height limit bypass indicator
@@ -491,7 +495,7 @@ namespace MegaHoe
 
             GUI.backgroundColor = oldBg;
             string hints = "SHIFT+Click = Paint | G = Cycle | H = Height Bypass";
-            GUI.Label(new Rect(x, currentY, width, 18f), hints, _cachedHintStyle);
+            GUI.Label(new Rect(x, currentY, width, hintsHeight), hints, _cachedHintStyle);
         }
 
         private static string GetWorldName()

@@ -5,7 +5,7 @@
     <AssemblyName>MegaHoe</AssemblyName>
     <RootNamespace>MegaHoe</RootNamespace>
     <Description>Enhanced Hoe and Cultivator with adjustable radius and terrain reset features</Description>
-    <Version>4.6.2</Version>
+    <Version>4.6.3</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
