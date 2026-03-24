@@ -537,4 +537,37 @@ namespace MegaHoe
             return Mathf.Clamp(value, min, max);
         }
     }
+
+    /// <summary>
+    /// Applies periodic fire damage when the local player stands on Ashlands-painted terrain.
+    /// Mimics vanilla lava behaviour with configurable damage and interval.
+    /// </summary>
+    [HarmonyPatch(typeof(Player), "Update")]
+    public static class Player_Update_AshlandsLavaDamage
+    {
+        private static float _nextDamageTime;
+
+        [HarmonyPostfix]
+        public static void Postfix(Player __instance)
+        {
+            if (__instance != Player.m_localPlayer) return;
+            if (!MegaHoePlugin.AshlandsLavaDamageEnabled.Value) return;
+            if (BiomePaintManager.OverrideCount == 0) return;
+            if (__instance.IsDead() || __instance.GetSEMan() == null) return;
+
+            Vector3 pos = __instance.transform.position;
+            Heightmap.Biome overrideBiome;
+            if (!BiomePaintManager.TryGetOverride(pos, out overrideBiome)) return;
+            if (overrideBiome != Heightmap.Biome.AshLands) return;
+
+            if (Time.time < _nextDamageTime) return;
+            _nextDamageTime = Time.time + MegaHoePlugin.AshlandsLavaDamageInterval.Value;
+
+            HitData hit = new HitData();
+            hit.m_damage.m_fire = MegaHoePlugin.AshlandsLavaDamageAmount.Value;
+            hit.m_point = pos;
+            hit.m_dir = Vector3.up;
+            __instance.Damage(hit);
+        }
+    }
 }

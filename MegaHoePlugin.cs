@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.4.0";
+        public const string PluginVersion = "4.5.0";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -30,6 +30,9 @@ namespace MegaHoe
         public static ConfigEntry<KeyCode> BiomePaintCycleKey;
         public static ConfigEntry<float> BiomePaintRadius;
         public static ConfigEntry<KeyCode> HeightLimitBypassKey;
+        public static ConfigEntry<bool> AshlandsLavaDamageEnabled;
+        public static ConfigEntry<float> AshlandsLavaDamageAmount;
+        public static ConfigEntry<float> AshlandsLavaDamageInterval;
         public static ConfigEntry<bool> DebugMode;
 
         public static bool HeightLimitBypassed = false;
@@ -65,6 +68,13 @@ namespace MegaHoe
                 HeightLimitBypassKey = Config.Bind("1. Hotkeys", "HeightLimitBypassKey", KeyCode.H,
                     "Press to toggle height limit bypass (while Hoe is equipped) - removes terrain raise/dig caps");
 
+                AshlandsLavaDamageEnabled = Config.Bind("2. Hoe", "AshlandsLavaDamage", true,
+                    "Whether Ashlands-painted terrain deals fire damage like real lava");
+                AshlandsLavaDamageAmount = Config.Bind("2. Hoe", "AshlandsLavaDamageAmount", 10f,
+                    new ConfigDescription("Fire damage per tick when standing on Ashlands-painted terrain", new AcceptableValueRange<float>(1f, 100f)));
+                AshlandsLavaDamageInterval = Config.Bind("2. Hoe", "AshlandsLavaDamageInterval", 0.5f,
+                    new ConfigDescription("Seconds between lava damage ticks", new AcceptableValueRange<float>(0.1f, 5f)));
+
                 DebugMode = Config.Bind("3. Debug", "DebugMode", false,
                     "Enable verbose debug logging to BepInEx console/log");
 
@@ -96,6 +106,7 @@ namespace MegaHoe
                 typeof(Player_OnSpawned_RebuildClutter),
                 typeof(ZNet_SaveWorld_SaveBiomePaint),
                 typeof(ZNet_OnDestroy_SaveBiomePaint),
+                typeof(Player_Update_AshlandsLavaDamage),
             };
 
             foreach (var patchType in patchTypes)
