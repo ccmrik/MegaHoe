@@ -430,4 +430,23 @@ namespace MegaHoe
             }
         }
     }
+
+    /// <summary>
+    /// Override Heightmap.GetBiome(Vector3) to return painted biome.
+    /// This controls the ground TEXTURE — lava for Ashlands, snow for Mountain, etc.
+    /// Patched manually in MegaHoePlugin.PatchHeightmapGetBiome().
+    /// </summary>
+    public static class Heightmap_GetBiome_Patch
+    {
+        public static void Postfix(Vector3 point, ref Heightmap.Biome __result)
+        {
+            if (BiomePaintManager.OverrideCount == 0) return;
+
+            Heightmap.Biome overrideBiome;
+            if (BiomePaintManager.TryGetOverride(point, out overrideBiome))
+            {
+                __result = overrideBiome;
+            }
+        }
+    }
 }

@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.1.1";
+        public const string PluginVersion = "4.2.0";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -110,6 +110,9 @@ namespace MegaHoe
             // ClutterSystem patches need special handling - method signatures may vary
             applied += PatchClutterSystem();
 
+            // Heightmap.GetBiome patch — changes ground TEXTURE (lava, snow, etc.)
+            applied += PatchHeightmapGetBiome();
+
             _logger.LogInfo($"Harmony patches: {applied} applied, {failed} failed");
         }
 
@@ -161,6 +164,44 @@ namespace MegaHoe
                 _logger.LogWarning($"Patch ClutterSystem_GetPatchBiomes failed: {ex.Message}");
             }
 
+            return applied;
+        }
+
+        private int PatchHeightmapGetBiome()
+        {
+            int applied = 0;
+            try
+            {
+                // Find the GetBiome(Vector3) overload that takes a world position
+                var getBiomeMethods = typeof(Heightmap).GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
+                MethodInfo targetMethod = null;
+                foreach (var m in getBiomeMethods)
+                {
+                    if (m.Name != "GetBiome") continue;
+                    var ps = m.GetParameters();
+                    if (ps.Length == 1 && ps[0].ParameterType == typeof(Vector3))
+                    {
+                        targetMethod = m;
+                        break;
+                    }
+                }
+
+                if (targetMethod != null)
+                {
+                    var postfix = new HarmonyMethod(typeof(Heightmap_GetBiome_Patch), "Postfix");
+                    _harmony.Patch(targetMethod, postfix: postfix);
+                    applied++;
+                    Log($"Patched Heightmap.GetBiome(Vector3) - ground textures will reflect painted biomes");
+                }
+                else
+                {
+                    _logger.LogWarning("Heightmap.GetBiome(Vector3) not found");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Patch Heightmap.GetBiome failed: {ex.Message}");
+            }
             return applied;
         }
 
@@ -425,7 +466,16 @@ namespace MegaHoe
                             TerrainModifier._forceRebuildField.SetValue(ClutterSystem.instance, true);
                     }
 
-                    player.Message(MessageHud.MessageType.Center, $"Painted {biomeName} grass");
+                    // Force heightmap ground texture refresh (lava, snow, etc.)
+                    List<Heightmap> hmaps = new List<Heightmap>();
+                    Heightmap.FindHeightmap(toolPos, paintRadius + 10f, hmaps);
+                    foreach (var hm in hmaps)
+                    {
+                        if (hm != null)
+                            hm.Poke(false);
+                    }
+
+                    player.Message(MessageHud.MessageType.Center, $"Painted {biomeName}");
 
                     UnityEngine.Object.Destroy(__instance.gameObject);
                     return false;
