@@ -15,12 +15,14 @@ namespace MegaHoe
         Swamp,
         Mountain,
         Plains,
-        Mistlands
+        Mistlands,
+        Ashlands
     }
 
     /// <summary>
     /// Manages biome override data for grass painting.
     /// Stores per-cell overrides in a 2m grid and persists them per world.
+    /// Saves alongside Valheim world data for cross-computer persistence.
     /// </summary>
     public static class BiomePaintManager
     {
@@ -57,6 +59,7 @@ namespace MegaHoe
                 case BiomePaintType.Mountain: return Heightmap.Biome.Mountain;
                 case BiomePaintType.Plains: return Heightmap.Biome.Plains;
                 case BiomePaintType.Mistlands: return Heightmap.Biome.Mistlands;
+                case BiomePaintType.Ashlands: return Heightmap.Biome.AshLands;
                 default: return Heightmap.Biome.None;
             }
         }
@@ -71,6 +74,7 @@ namespace MegaHoe
                 case BiomePaintType.Mountain: return new Color(0.9f, 0.9f, 0.95f);
                 case BiomePaintType.Plains: return new Color(0.85f, 0.75f, 0.3f);
                 case BiomePaintType.Mistlands: return new Color(0.35f, 0.2f, 0.55f);
+                case BiomePaintType.Ashlands: return new Color(0.85f, 0.25f, 0.1f);
                 default: return Color.gray;
             }
         }
@@ -153,10 +157,32 @@ namespace MegaHoe
             _currentWorldName = "";
         }
 
-        private static string GetSavePath()
+        /// <summary>
+        /// Primary save path alongside Valheim world saves for cross-computer persistence.
+        /// </summary>
+        private static string GetWorldSavePath()
+        {
+            try
+            {
+                string valheimSave = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    "AppData", "LocalLow", "IronGate", "Valheim", "worlds_local");
+                if (Directory.Exists(valheimSave))
+                    return Path.Combine(valheimSave, "megahoe_" + _currentWorldName + ".dat");
+            }
+            catch (Exception ex)
+            {
+                MegaHoePlugin.LogError($"[BiomePaint] Failed to resolve world save path: {ex.Message}");
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Legacy save path in BepInEx config (used for migration).
+        /// </summary>
+        private static string GetLegacySavePath()
         {
             string dir = Path.Combine(BepInEx.Paths.ConfigPath, "MegaHoe");
-            Directory.CreateDirectory(dir);
             return Path.Combine(dir, "biome_paint_" + _currentWorldName + ".dat");
         }
 
@@ -174,10 +200,14 @@ namespace MegaHoe
             }
             try
             {
-                string path = GetSavePath();
+                string path = GetWorldSavePath() ?? GetLegacySavePath();
+                string dir = Path.GetDirectoryName(path);
+                if (!Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+
                 using (var writer = new BinaryWriter(File.Open(path, FileMode.Create)))
                 {
-                    writer.Write(1);
+                    writer.Write(2); // version 2 - world save path era
                     writer.Write(_overrides.Count);
                     foreach (var kvp in _overrides)
                     {
@@ -201,16 +231,31 @@ namespace MegaHoe
                 MegaHoePlugin.Log($"[BiomeLoad] Skipped: no world name set");
                 return;
             }
-            string path = GetSavePath();
-            MegaHoePlugin.Log($"[BiomeLoad] Looking for file: {path}");
-            if (!File.Exists(path))
+
+            // Try world save path first (primary), then legacy BepInEx config path
+            string worldPath = GetWorldSavePath();
+            string legacyPath = GetLegacySavePath();
+            bool isLegacy = false;
+
+            string loadPath = null;
+            if (worldPath != null && File.Exists(worldPath))
+                loadPath = worldPath;
+            else if (File.Exists(legacyPath))
             {
-                MegaHoePlugin.Log($"[BiomeLoad] File not found â€” no saved paint data");
+                loadPath = legacyPath;
+                isLegacy = true;
+                MegaHoePlugin.Log($"[BiomeLoad] Found legacy save at {legacyPath}, will migrate");
+            }
+
+            if (loadPath == null)
+            {
+                MegaHoePlugin.Log($"[BiomeLoad] No saved paint data found");
                 return;
             }
+
             try
             {
-                using (var reader = new BinaryReader(File.Open(path, FileMode.Open)))
+                using (var reader = new BinaryReader(File.Open(loadPath, FileMode.Open)))
                 {
                     int version = reader.ReadInt32();
                     int count = reader.ReadInt32();
@@ -221,7 +266,14 @@ namespace MegaHoe
                         _overrides[key] = (Heightmap.Biome)biome;
                     }
                 }
-                MegaHoePlugin.Log($"[BiomeLoad] SUCCESS: Loaded {_overrides.Count} overrides from {path}");
+                MegaHoePlugin.Log($"[BiomeLoad] Loaded {_overrides.Count} overrides from {loadPath}");
+
+                // Migrate legacy data to world save path
+                if (isLegacy && _overrides.Count > 0)
+                {
+                    Save();
+                    MegaHoePlugin.Log($"[BiomeLoad] Migrated paint data to world save directory");
+                }
             }
             catch (Exception ex)
             {
@@ -232,8 +284,7 @@ namespace MegaHoe
 
     /// <summary>
     /// Load biome paint data early during game startup, BEFORE ClutterSystem
-    /// generates its first set of grass patches. This ensures our GetPatchBiomes
-    /// and GetGroundInfo patches have data available from the very first frame.
+    /// generates its first set of grass patches.
     /// </summary>
     [HarmonyPatch(typeof(Game), "Start")]
     public static class Game_Start_LoadBiomePaint
@@ -258,8 +309,7 @@ namespace MegaHoe
     }
 
     /// <summary>
-    /// Force a full clutter rebuild once ClutterSystem and Player are both ready,
-    /// to ensure any patches generated before early load are refreshed.
+    /// Force a full clutter rebuild once ClutterSystem and Player are both ready.
     /// </summary>
     [HarmonyPatch(typeof(Player), "OnSpawned")]
     public static class Player_OnSpawned_RebuildClutter
@@ -273,7 +323,6 @@ namespace MegaHoe
 
             try
             {
-                // Clear all cached patches so they regenerate with our biome overrides
                 var patchesField = typeof(ClutterSystem).GetField("m_patches", BindingFlags.NonPublic | BindingFlags.Instance);
                 if (patchesField != null)
                 {
@@ -285,7 +334,6 @@ namespace MegaHoe
                     }
                 }
 
-                // Also clear any pooled instances
                 var clearAllMethod = typeof(ClutterSystem).GetMethod("ClearAll", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                 if (clearAllMethod != null)
                     clearAllMethod.Invoke(ClutterSystem.instance, null);
@@ -301,7 +349,6 @@ namespace MegaHoe
 
     /// <summary>
     /// Save biome paint data whenever the game auto-saves the world.
-    /// This ensures paint data is always persisted alongside world saves.
     /// </summary>
     [HarmonyPatch(typeof(ZNet), "SaveWorld")]
     public static class ZNet_SaveWorld_SaveBiomePaint
@@ -311,7 +358,7 @@ namespace MegaHoe
         {
             if (BiomePaintManager.OverrideCount > 0)
             {
-                MegaHoePlugin.Log("[BiomePaint] World save detected â€” saving biome paint data");
+                MegaHoePlugin.Log("[BiomePaint] World save detected - saving biome paint data");
                 BiomePaintManager.Save();
             }
         }
@@ -326,32 +373,28 @@ namespace MegaHoe
         [HarmonyPrefix]
         public static void Prefix()
         {
-            MegaHoePlugin.Log("[BiomePaint] ZNet.OnDestroy â€” saving biome paint data");
+            MegaHoePlugin.Log("[BiomePaint] ZNet.OnDestroy - saving biome paint data");
             BiomePaintManager.Save();
         }
     }
 
     /// <summary>
     /// Override patch-level biome mask so the clutter system considers painted biome vegetation.
-    /// Biome is a flags enum - we OR the painted biome into the result so both native
-    /// and painted clutter types are eligible for generation in the patch.
+    /// Patched manually in MegaHoePlugin.PatchClutterSystem() for resilient parameter matching.
     /// </summary>
-    [HarmonyPatch(typeof(ClutterSystem), "GetPatchBiomes")]
     public static class ClutterSystem_GetPatchBiomes_Patch
     {
-        [HarmonyPostfix]
         public static void Postfix(Vector3 center, float halfSize, ref Heightmap.Biome __result)
         {
             if (BiomePaintManager.OverrideCount == 0) return;
 
-            // Sample the patch area for any overrides
             Heightmap.Biome overrideBiome;
             if (BiomePaintManager.TryGetOverride(center, out overrideBiome))
             {
                 __result |= overrideBiome;
             }
 
-            // Also check patch corners/edges to catch overrides at patch boundaries
+            // Also check patch corners to catch overrides at patch boundaries
             float step = halfSize;
             Vector3[] samples = new Vector3[]
             {
@@ -372,12 +415,10 @@ namespace MegaHoe
 
     /// <summary>
     /// Override per-point biome lookup for individual clutter placement.
-    /// GetGroundInfo returns terrain data including biome for each grass blade position.
+    /// Patched manually in MegaHoePlugin.PatchClutterSystem() for resilient parameter matching.
     /// </summary>
-    [HarmonyPatch(typeof(ClutterSystem), "GetGroundInfo")]
     public static class ClutterSystem_GetGroundInfo_Patch
     {
-        [HarmonyPostfix]
         public static void Postfix(Vector3 p, ref Heightmap.Biome biome)
         {
             if (BiomePaintManager.OverrideCount == 0) return;

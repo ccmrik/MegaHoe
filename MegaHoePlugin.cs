@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.0.2";
+        public const string PluginVersion = "4.1.0";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -28,6 +28,7 @@ namespace MegaHoe
         public static ConfigEntry<float> OperationRadius;
         public static ConfigEntry<KeyCode> BiomePaintKey;
         public static ConfigEntry<KeyCode> BiomePaintCycleKey;
+        public static ConfigEntry<float> BiomePaintRadius;
         public static ConfigEntry<bool> DebugMode;
 
         private static string _lastWorldName = "";
@@ -37,32 +38,127 @@ namespace MegaHoe
             _logger = Logger;
             _logger.LogInfo($"{PluginName} v{PluginVersion} loading...");
 
-            MigrateConfig(Config.ConfigFilePath);
-            Config.Reload();
+            try
+            {
+                MigrateConfig(Config.ConfigFilePath);
+                Config.Reload();
 
-            TerrainFlattenKey = Config.Bind("1. Hotkeys", "TerrainFlattenKey", KeyCode.LeftControl, 
-                "Hold while using Hoe to flatten terrain to the height where you're standing");
-            TerrainResetKey = Config.Bind("1. Hotkeys", "TerrainResetKey", KeyCode.LeftAlt, 
-                "Hold while using Hoe to reset terrain to original world height");
-            OperationRadius = Config.Bind("2. Hoe", "OperationRadius", 4f, 
-                "Radius for flatten/reset operations");
-            BiomePaintKey = Config.Bind("1. Hotkeys", "BiomePaintKey", KeyCode.LeftShift,
-                "Hold while using Hoe to paint biome grass");
-            BiomePaintCycleKey = Config.Bind("1. Hotkeys", "BiomePaintCycleKey", KeyCode.G,
-                "Press to cycle biome grass paint selection (while Hoe is equipped)");
+                TerrainFlattenKey = Config.Bind("1. Hotkeys", "TerrainFlattenKey", KeyCode.LeftControl, 
+                    "Hold while using Hoe to flatten terrain to the height where you're standing");
+                TerrainResetKey = Config.Bind("1. Hotkeys", "TerrainResetKey", KeyCode.LeftAlt, 
+                    "Hold while using Hoe to reset terrain to original world height");
+                BiomePaintKey = Config.Bind("1. Hotkeys", "BiomePaintKey", KeyCode.LeftShift,
+                    "Hold while using Hoe to paint biome grass");
+                BiomePaintCycleKey = Config.Bind("1. Hotkeys", "BiomePaintCycleKey", KeyCode.G,
+                    "Press to cycle biome grass paint selection (while Hoe is equipped)");
 
-            DebugMode = Config.Bind("3. Debug", "DebugMode", false,
-                "Enable verbose debug logging to BepInEx console/log");
+                OperationRadius = Config.Bind("2. Hoe", "OperationRadius", 4f, 
+                    new ConfigDescription("Radius for flatten/reset operations", new AcceptableValueRange<float>(1f, 20f)));
+                BiomePaintRadius = Config.Bind("2. Hoe", "BiomePaintRadius", 4f,
+                    new ConfigDescription("Radius for biome grass painting", new AcceptableValueRange<float>(1f, 30f)));
 
-            _config = Config;
-            SetupConfigWatcher();
+                DebugMode = Config.Bind("3. Debug", "DebugMode", false,
+                    "Enable verbose debug logging to BepInEx console/log");
 
-            _harmony = new Harmony(PluginGUID);
-            _harmony.PatchAll(Assembly.GetExecutingAssembly());
+                _config = Config;
+                SetupConfigWatcher();
 
-            _logger.LogInfo($"{PluginName} loaded!");
-            _logger.LogInfo($"CTRL+Hoe = Level | ALT+Hoe = Reset | G = Cycle biome paint | SHIFT+Hoe = Paint grass");
-            _logger.LogInfo($"Live config reloading enabled - edit {Config.ConfigFilePath} and save to apply changes!");
+                _harmony = new Harmony(PluginGUID);
+                ApplyPatches();
+
+                _logger.LogInfo($"{PluginName} loaded!");
+                _logger.LogInfo($"CTRL+Hoe = Level | ALT+Hoe = Reset | G = Cycle biome paint | SHIFT+Hoe = Paint grass");
+                _logger.LogInfo($"Live config reloading enabled - edit {Config.ConfigFilePath} and save to apply changes!");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"{PluginName} FAILED to load: {ex}");
+            }
+        }
+
+        private void ApplyPatches()
+        {
+            int applied = 0;
+            int failed = 0;
+            var patchTypes = new[]
+            {
+                typeof(Location_IsInsideNoBuildLocation_Patch),
+                typeof(TerrainOp_OnPlaced_Patch),
+                typeof(Game_Start_LoadBiomePaint),
+                typeof(Player_OnSpawned_RebuildClutter),
+                typeof(ZNet_SaveWorld_SaveBiomePaint),
+                typeof(ZNet_OnDestroy_SaveBiomePaint),
+            };
+
+            foreach (var patchType in patchTypes)
+            {
+                try
+                {
+                    _harmony.CreateClassProcessor(patchType).Patch();
+                    applied++;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    _logger.LogWarning($"Patch {patchType.Name} failed: {ex.Message}");
+                }
+            }
+
+            // ClutterSystem patches need special handling - method signatures may vary
+            applied += PatchClutterSystem();
+
+            _logger.LogInfo($"Harmony patches: {applied} applied, {failed} failed");
+        }
+
+        private int PatchClutterSystem()
+        {
+            int applied = 0;
+
+            // Patch GetGroundInfo - find actual method and match parameters
+            try
+            {
+                var getGroundInfo = typeof(ClutterSystem).GetMethod("GetGroundInfo",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
+                if (getGroundInfo != null)
+                {
+                    var postfix = new HarmonyMethod(typeof(ClutterSystem_GetGroundInfo_Patch), "Postfix");
+                    _harmony.Patch(getGroundInfo, postfix: postfix);
+                    applied++;
+                    Log($"Patched ClutterSystem.GetGroundInfo ({(getGroundInfo.IsStatic ? "static" : "instance")}, params: {string.Join(", ", getGroundInfo.GetParameters().Select(p => p.ParameterType.Name + " " + p.Name))})");
+                }
+                else
+                {
+                    _logger.LogWarning("ClutterSystem.GetGroundInfo not found");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Patch ClutterSystem_GetGroundInfo failed: {ex.Message}");
+            }
+
+            // Patch GetPatchBiomes
+            try
+            {
+                var getPatchBiomes = typeof(ClutterSystem).GetMethod("GetPatchBiomes",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
+                if (getPatchBiomes != null)
+                {
+                    var postfix = new HarmonyMethod(typeof(ClutterSystem_GetPatchBiomes_Patch), "Postfix");
+                    _harmony.Patch(getPatchBiomes, postfix: postfix);
+                    applied++;
+                    Log($"Patched ClutterSystem.GetPatchBiomes ({(getPatchBiomes.IsStatic ? "static" : "instance")}, params: {string.Join(", ", getPatchBiomes.GetParameters().Select(p => p.ParameterType.Name + " " + p.Name))})");
+                }
+                else
+                {
+                    _logger.LogWarning("ClutterSystem.GetPatchBiomes not found");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Patch ClutterSystem_GetPatchBiomes failed: {ex.Message}");
+            }
+
+            return applied;
         }
 
         private void SetupConfigWatcher()
@@ -302,19 +398,20 @@ namespace MegaHoe
                 // SHIFT + biome selected = Paint biome grass
                 if (Input.GetKey(MegaHoePlugin.BiomePaintKey.Value) && BiomePaintManager.SelectedBiome != BiomePaintType.None)
                 {
+                    float paintRadius = MegaHoePlugin.BiomePaintRadius.Value;
                     Heightmap.Biome biome = BiomePaintManager.ToGameBiome(BiomePaintManager.SelectedBiome);
                     string biomeName = BiomePaintManager.GetDisplayName(BiomePaintManager.SelectedBiome);
 
                     MegaHoePlugin.Log($"=== BIOME PAINT ===");
-                    MegaHoePlugin.Log($"Position: {toolPos}, Radius: {radius}, Biome: {biomeName}");
+                    MegaHoePlugin.Log($"Position: {toolPos}, Radius: {paintRadius}, Biome: {biomeName}");
 
-                    BiomePaintManager.PaintArea(toolPos, radius, biome);
+                    BiomePaintManager.PaintArea(toolPos, paintRadius, biome);
                     BiomePaintManager.Save();
 
                     // Force clutter regeneration - use wider radius to cover full patch boundaries
                     if (ClutterSystem.instance != null)
                     {
-                        ClutterSystem.instance.ResetGrass(toolPos, radius + 10f);
+                        ClutterSystem.instance.ResetGrass(toolPos, paintRadius + 10f);
                         // Cache force rebuild field lookup
                         if (!TerrainModifier._forceRebuildFieldSearched)
                         {
