@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.6.3";
+        public const string PluginVersion = "4.7.0";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -247,60 +247,51 @@ namespace MegaHoe
             int applied = 0;
             try
             {
-                var methods = typeof(TerrainComp).GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                var candidates = new List<MethodInfo>();
+                // The height clamping lives inside LevelTerrain, RaiseTerrain, SmoothTerrain
+                // (NOT in DoOperation/InternalDoOperation which are just dispatchers)
+                string[] targetNames = { "LevelTerrain", "RaiseTerrain", "SmoothTerrain" };
+                var allMethods = typeof(TerrainComp).GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
 
-                // Find ALL methods that take (Vector3, TerrainOp.Settings)
-                foreach (var m in methods)
+                foreach (string name in targetNames)
                 {
-                    var ps = m.GetParameters();
-                    if (ps.Length >= 2 &&
-                        ps[0].ParameterType == typeof(Vector3) &&
-                        ps[1].ParameterType == typeof(TerrainOp.Settings))
+                    var matches = allMethods.Where(m => m.Name == name).ToArray();
+                    if (matches.Length == 0)
                     {
-                        candidates.Add(m);
+                        _logger.LogWarning($"[HeightBypass] {name} NOT FOUND on TerrainComp");
+                        continue;
+                    }
+
+                    foreach (var method in matches)
+                    {
                         try
                         {
-                            var body = m.GetMethodBody();
-                            int ilSize = body?.GetILAsByteArray()?.Length ?? 0;
-                            _logger.LogInfo($"[HeightBypass] Candidate: {m.Name} IL={ilSize} bytes");
+                            int ilSize = 0;
+                            try { ilSize = method.GetMethodBody()?.GetILAsByteArray()?.Length ?? 0; } catch { }
+                            var ps = method.GetParameters();
+                            _logger.LogInfo($"[HeightBypass] Patching {name}({string.Join(", ", ps.Select(p => p.ParameterType.Name))}) IL={ilSize} bytes");
+
+                            var transpiler = new HarmonyMethod(typeof(TerrainComp_DoOperation_Patch), "Transpiler");
+                            _harmony.Patch(method, transpiler: transpiler);
+                            applied++;
+                            _logger.LogInfo($"[HeightBypass] {name}: {TerrainComp_DoOperation_Patch.LastReplacedCount} clamp-like calls replaced");
                         }
-                        catch
+                        catch (Exception ex)
                         {
-                            _logger.LogInfo($"[HeightBypass] Candidate: {m.Name} (could not read IL)");
+                            _logger.LogWarning($"[HeightBypass] Failed to patch {name}: {ex.Message}");
                         }
                     }
                 }
 
-                // Patch ALL candidates — the big one is where the real logic lives
-                foreach (var doOp in candidates)
+                if (applied == 0)
                 {
-                    try
-                    {
-                        var transpiler = new HarmonyMethod(typeof(TerrainComp_DoOperation_Patch), "Transpiler");
-                        _harmony.Patch(doOp, transpiler: transpiler);
-                        applied++;
-                        _logger.LogInfo($"[HeightBypass] Patched {doOp.Name}: replaced {TerrainComp_DoOperation_Patch.LastReplacedCount} clamp-like calls");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning($"[HeightBypass] Failed to patch {doOp.Name}: {ex.Message}");
-                    }
-                }
-
-                if (candidates.Count == 0)
-                {
-                    _logger.LogWarning("[HeightBypass] No DoOperation candidates found!");
-                    foreach (var m in methods.Take(40))
-                    {
-                        var ps = m.GetParameters();
-                        _logger.LogInfo($"[HeightBypass]   {m.Name}({string.Join(", ", ps.Select(p => p.ParameterType.Name))})");
-                    }
+                    _logger.LogWarning("[HeightBypass] No terrain methods patched! Dumping all TerrainComp methods:");
+                    foreach (var m in allMethods.Take(50))
+                        _logger.LogInfo($"[HeightBypass]   {m.Name}");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning($"Patch TerrainComp.DoOperation failed: {ex.Message}");
+                _logger.LogWarning($"Patch TerrainComp height bypass failed: {ex.Message}");
             }
             return applied;
         }
