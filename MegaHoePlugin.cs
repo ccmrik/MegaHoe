@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.3.0";
+        public const string PluginVersion = "4.4.0";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -115,8 +115,11 @@ namespace MegaHoe
             // ClutterSystem patches need special handling - method signatures may vary
             applied += PatchClutterSystem();
 
-            // Heightmap.GetBiome patch — changes ground TEXTURE (lava, snow, etc.)
+            // Heightmap.GetBiome patch — biome queries for gameplay logic
             applied += PatchHeightmapGetBiome();
+
+            // Heightmap.RebuildRenderMesh — ground TEXTURE rendering (vertex colors)
+            applied += PatchHeightmapRebuildRenderMesh();
 
             // TerrainComp.DoOperation — height limit bypass
             applied += PatchTerrainCompDoOperation();
@@ -209,6 +212,32 @@ namespace MegaHoe
             catch (Exception ex)
             {
                 _logger.LogWarning($"Patch Heightmap.GetBiome failed: {ex.Message}");
+            }
+            return applied;
+        }
+
+        private int PatchHeightmapRebuildRenderMesh()
+        {
+            int applied = 0;
+            try
+            {
+                var rbMethod = typeof(Heightmap).GetMethod("RebuildRenderMesh",
+                    BindingFlags.NonPublic | BindingFlags.Instance);
+                if (rbMethod != null)
+                {
+                    var postfix = new HarmonyMethod(typeof(Heightmap_RebuildRenderMesh_Patch), "Postfix");
+                    _harmony.Patch(rbMethod, postfix: postfix);
+                    applied++;
+                    Log("Patched Heightmap.RebuildRenderMesh - ground texture will reflect painted biomes");
+                }
+                else
+                {
+                    _logger.LogWarning("Heightmap.RebuildRenderMesh not found");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Patch Heightmap.RebuildRenderMesh failed: {ex.Message}");
             }
             return applied;
         }

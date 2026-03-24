@@ -452,6 +452,57 @@ namespace MegaHoe
     }
 
     /// <summary>
+    /// Override vertex colors on the heightmap render mesh so painted areas
+    /// display the correct ground TEXTURE (lava for Ashlands, snow for Mountain, etc.).
+    /// RebuildRenderMesh() normally interpolates from m_cornerBiomes which are world-gen values.
+    /// This postfix overrides vertex colors for painted cells after the mesh is built.
+    /// Patched manually in MegaHoePlugin.PatchHeightmapRebuildRenderMesh().
+    /// </summary>
+    public static class Heightmap_RebuildRenderMesh_Patch
+    {
+        private static FieldInfo _renderMeshField;
+        private static bool _fieldSearched;
+
+        public static void Postfix(Heightmap __instance)
+        {
+            if (BiomePaintManager.OverrideCount == 0) return;
+
+            if (!_fieldSearched)
+            {
+                _fieldSearched = true;
+                _renderMeshField = typeof(Heightmap).GetField("m_renderMesh",
+                    BindingFlags.NonPublic | BindingFlags.Instance);
+            }
+            if (_renderMeshField == null) return;
+
+            Mesh mesh = _renderMeshField.GetValue(__instance) as Mesh;
+            if (mesh == null || mesh.vertexCount == 0) return;
+
+            Vector3 hmPos = __instance.transform.position;
+            var vertices = mesh.vertices;
+            var colors = mesh.colors32;
+            if (colors == null || colors.Length != vertices.Length) return;
+
+            bool modified = false;
+            for (int i = 0; i < vertices.Length; i++)
+            {
+                Vector3 worldPos = hmPos + vertices[i];
+                Heightmap.Biome overrideBiome;
+                if (BiomePaintManager.TryGetOverride(worldPos, out overrideBiome))
+                {
+                    colors[i] = Heightmap.GetBiomeColor(overrideBiome);
+                    modified = true;
+                }
+            }
+
+            if (modified)
+            {
+                mesh.colors32 = colors;
+            }
+        }
+    }
+
+    /// <summary>
     /// Transpiler patch for TerrainComp.DoOperation to bypass height limits.
     /// Replaces Mathf.Clamp(float,float,float) calls with a conditional version
     /// that skips clamping when HeightLimitBypassed is active.
