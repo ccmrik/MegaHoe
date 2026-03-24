@@ -13,11 +13,9 @@ namespace MegaHoe
         None,
         Meadows,
         BlackForest,
-        Swamp,
         Mountain,
         Plains,
-        Mistlands,
-        Ashlands
+        Mistlands
     }
 
     /// <summary>
@@ -56,11 +54,9 @@ namespace MegaHoe
             {
                 case BiomePaintType.Meadows: return Heightmap.Biome.Meadows;
                 case BiomePaintType.BlackForest: return Heightmap.Biome.BlackForest;
-                case BiomePaintType.Swamp: return Heightmap.Biome.Swamp;
                 case BiomePaintType.Mountain: return Heightmap.Biome.Mountain;
                 case BiomePaintType.Plains: return Heightmap.Biome.Plains;
                 case BiomePaintType.Mistlands: return Heightmap.Biome.Mistlands;
-                case BiomePaintType.Ashlands: return Heightmap.Biome.AshLands;
                 default: return Heightmap.Biome.None;
             }
         }
@@ -71,11 +67,9 @@ namespace MegaHoe
             {
                 case BiomePaintType.Meadows: return new Color(0.4f, 0.8f, 0.3f);
                 case BiomePaintType.BlackForest: return new Color(0.15f, 0.4f, 0.15f);
-                case BiomePaintType.Swamp: return new Color(0.4f, 0.3f, 0.15f);
                 case BiomePaintType.Mountain: return new Color(0.9f, 0.9f, 0.95f);
                 case BiomePaintType.Plains: return new Color(0.85f, 0.75f, 0.3f);
                 case BiomePaintType.Mistlands: return new Color(0.35f, 0.2f, 0.55f);
-                case BiomePaintType.Ashlands: return new Color(0.85f, 0.25f, 0.1f);
                 default: return Color.gray;
             }
         }
@@ -538,36 +532,4 @@ namespace MegaHoe
         }
     }
 
-    /// <summary>
-    /// Applies periodic fire damage when the local player stands on Ashlands-painted terrain.
-    /// Mimics vanilla lava behaviour with configurable damage and interval.
-    /// </summary>
-    [HarmonyPatch(typeof(Player), "Update")]
-    public static class Player_Update_AshlandsLavaDamage
-    {
-        private static float _nextDamageTime;
-
-        [HarmonyPostfix]
-        public static void Postfix(Player __instance)
-        {
-            if (__instance != Player.m_localPlayer) return;
-            if (!MegaHoePlugin.AshlandsLavaDamageEnabled.Value) return;
-            if (BiomePaintManager.OverrideCount == 0) return;
-            if (__instance.IsDead() || __instance.GetSEMan() == null) return;
-
-            Vector3 pos = __instance.transform.position;
-            Heightmap.Biome overrideBiome;
-            if (!BiomePaintManager.TryGetOverride(pos, out overrideBiome)) return;
-            if (overrideBiome != Heightmap.Biome.AshLands) return;
-
-            if (Time.time < _nextDamageTime) return;
-            _nextDamageTime = Time.time + MegaHoePlugin.AshlandsLavaDamageInterval.Value;
-
-            HitData hit = new HitData();
-            hit.m_damage.m_fire = MegaHoePlugin.AshlandsLavaDamageAmount.Value;
-            hit.m_point = pos;
-            hit.m_dir = Vector3.up;
-            __instance.Damage(hit);
-        }
-    }
 }
