@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.8.3";
+        public const string PluginVersion = "4.8.4";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -423,6 +423,21 @@ namespace MegaHoe
                     string state = HeightLimitBypassed ? "ON - No height limits!" : "OFF";
                     player.Message(MessageHud.MessageType.Center, "Height Limit Bypass: " + state);
                 }
+
+                // Paint radius adjustment with [ and ]
+                if (BiomePaintManager.SelectedBiome != BiomePaintType.None)
+                {
+                    if (Input.GetKeyDown(KeyCode.LeftBracket))
+                    {
+                        BiomePaintRadius.Value = Mathf.Max(1f, BiomePaintRadius.Value - 1f);
+                        player.Message(MessageHud.MessageType.Center, $"Paint Radius: {BiomePaintRadius.Value:F0}");
+                    }
+                    if (Input.GetKeyDown(KeyCode.RightBracket))
+                    {
+                        BiomePaintRadius.Value = Mathf.Min(50f, BiomePaintRadius.Value + 1f);
+                        player.Message(MessageHud.MessageType.Center, $"Paint Radius: {BiomePaintRadius.Value:F0}");
+                    }
+                }
             }
         }
 
@@ -479,7 +494,7 @@ namespace MegaHoe
             // Biome paint indicator
             if (showBiome)
             {
-                string text = "Grass Paint: " + BiomePaintManager.GetDisplayName(BiomePaintManager.SelectedBiome);
+                string text = "Grass Paint: " + BiomePaintManager.GetDisplayName(BiomePaintManager.SelectedBiome) + "  r=" + BiomePaintRadius.Value.ToString("F0");
                 Color biomeColor = BiomePaintManager.GetBiomeColor(BiomePaintManager.SelectedBiome);
                 GUI.backgroundColor = new Color(biomeColor.r, biomeColor.g, biomeColor.b, 0.85f);
                 GUI.Box(new Rect(x, currentY, width, height), text, _cachedBoxStyle);
@@ -487,7 +502,7 @@ namespace MegaHoe
             }
 
             GUI.backgroundColor = oldBg;
-            string hints = "SHIFT+Click = Paint | G = Cycle | H = Height Bypass";
+            string hints = "SHIFT+Click = Paint | G = Cycle | [/] = Radius | H = Height Bypass";
             GUI.Label(new Rect(x, currentY, width, hintsHeight), hints, _cachedHintStyle);
         }
 

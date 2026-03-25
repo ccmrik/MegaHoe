@@ -117,7 +117,7 @@ namespace MegaHoe
                 }
             }
 
-            MegaHoePlugin.Log($"Painted {painted} cells with biome {biome}");
+            MegaHoePlugin.LogAlways($"[BiomePaint] Painted {painted} cells (radius={radius}) with biome {biome}");
         }
 
         public static bool TryGetOverride(Vector3 pos, out Heightmap.Biome biome)
