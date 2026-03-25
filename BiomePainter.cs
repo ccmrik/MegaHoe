@@ -433,6 +433,8 @@ namespace MegaHoe
     /// </summary>
     public static class Heightmap_GetBiome_Patch
     {
+        private static bool _loggedOnce;
+
         public static void Postfix(Vector3 point, ref Heightmap.Biome __result)
         {
             if (BiomePaintManager.OverrideCount == 0) return;
@@ -440,6 +442,11 @@ namespace MegaHoe
             Heightmap.Biome overrideBiome;
             if (BiomePaintManager.TryGetOverride(point, out overrideBiome))
             {
+                if (!_loggedOnce)
+                {
+                    MegaHoePlugin.LogAlways($"[BiomePatch] GetBiome override FIRED: ({point.x:F0},{point.z:F0}) {__result}->{overrideBiome}");
+                    _loggedOnce = true;
+                }
                 __result = overrideBiome;
             }
         }
@@ -456,6 +463,7 @@ namespace MegaHoe
     {
         private static FieldInfo _renderMeshField;
         private static bool _fieldSearched;
+        private static bool _loggedOnce;
 
         public static void Postfix(Heightmap __instance)
         {
@@ -478,6 +486,7 @@ namespace MegaHoe
             if (colors == null || colors.Length != vertices.Length) return;
 
             bool modified = false;
+            int overriddenVerts = 0;
             for (int i = 0; i < vertices.Length; i++)
             {
                 Vector3 worldPos = hmPos + vertices[i];
@@ -486,12 +495,18 @@ namespace MegaHoe
                 {
                     colors[i] = Heightmap.GetBiomeColor(overrideBiome);
                     modified = true;
+                    overriddenVerts++;
                 }
             }
 
             if (modified)
             {
                 mesh.colors32 = colors;
+                if (!_loggedOnce)
+                {
+                    MegaHoePlugin.LogAlways($"[BiomePatch] RebuildRenderMesh override FIRED: {overriddenVerts}/{vertices.Length} verts at hm({hmPos.x:F0},{hmPos.z:F0})");
+                    _loggedOnce = true;
+                }
             }
         }
     }
