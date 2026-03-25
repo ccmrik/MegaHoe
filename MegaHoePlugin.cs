@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.8.2";
+        public const string PluginVersion = "4.8.3";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -61,7 +61,7 @@ namespace MegaHoe
                 OperationRadius = Config.Bind("2. Hoe", "OperationRadius", 4f, 
                     new ConfigDescription("Radius for flatten/reset operations", new AcceptableValueRange<float>(1f, 20f)));
                 BiomePaintRadius = Config.Bind("2. Hoe", "BiomePaintRadius", 4f,
-                    new ConfigDescription("Radius for biome grass painting", new AcceptableValueRange<float>(1f, 30f)));
+                    new ConfigDescription("Radius for biome grass painting", new AcceptableValueRange<float>(1f, 50f)));
                 HeightLimitBypassKey = Config.Bind("1. Hotkeys", "HeightLimitBypassKey", KeyCode.H,
                     "Press to toggle height limit bypass (while Hoe is equipped) - removes terrain raise/dig caps");
 
@@ -631,8 +631,7 @@ namespace MegaHoe
                     Heightmap.Biome biome = BiomePaintManager.ToGameBiome(BiomePaintManager.SelectedBiome);
                     string biomeName = BiomePaintManager.GetDisplayName(BiomePaintManager.SelectedBiome);
 
-                    MegaHoePlugin.Log($"=== BIOME PAINT ===");
-                    MegaHoePlugin.Log($"Position: {toolPos}, Radius: {paintRadius}, Biome: {biomeName}");
+                    MegaHoePlugin.LogAlways($"[BiomePaint] Radius={paintRadius}, Biome={biomeName}, Pos=({toolPos.x:F1},{toolPos.z:F1})");
 
                     BiomePaintManager.PaintArea(toolPos, paintRadius, biome);
                     BiomePaintManager.Save();
@@ -660,7 +659,7 @@ namespace MegaHoe
                             hm.Poke(false);
                     }
 
-                    player.Message(MessageHud.MessageType.Center, $"Painted {biomeName}");
+                    player.Message(MessageHud.MessageType.Center, $"Painted {biomeName} (r={paintRadius})");
 
                     UnityEngine.Object.Destroy(__instance.gameObject);
                     return false;
