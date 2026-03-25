@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.8.5";
+        public const string PluginVersion = "4.8.6";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -648,11 +648,13 @@ namespace MegaHoe
 
                     MegaHoePlugin.LogAlways($"[BiomePaint] Radius={paintRadius}, Biome={biomeName}, Pos=({toolPos.x:F1},{toolPos.z:F1})");
 
-                    BiomePaintManager.PaintArea(toolPos, paintRadius, biome);
+                    int cellsPainted = BiomePaintManager.PaintArea(toolPos, paintRadius, biome);
                     BiomePaintManager.Save();
 
-                    // Verify paint data was stored
-                    MegaHoePlugin.LogAlways($"[BiomePaint] Total overrides after paint: {BiomePaintManager.OverrideCount}");
+                    // Verify paint data lookup works at center
+                    Heightmap.Biome verifyBiome;
+                    bool verifyOk = BiomePaintManager.TryGetOverride(toolPos, out verifyBiome);
+                    MegaHoePlugin.LogAlways($"[BiomePaint] Verify center lookup: ok={verifyOk} biome={verifyBiome} total={BiomePaintManager.OverrideCount}");
 
                     // Force ALL loaded heightmaps to rebuild ground textures
                     // FindHeightmap only returns loaded tiles, so scan with a generous radius
@@ -734,7 +736,7 @@ namespace MegaHoe
                             TerrainModifier._forceRebuildField.SetValue(ClutterSystem.instance, true);
                     }
 
-                    player.Message(MessageHud.MessageType.Center, $"Painted {biomeName} (r={paintRadius})");
+                    player.Message(MessageHud.MessageType.Center, $"Painted {biomeName} r={paintRadius} ({cellsPainted} cells, {heightmapsPoked} hmaps)");
 
                     UnityEngine.Object.Destroy(__instance.gameObject);
                     return false;

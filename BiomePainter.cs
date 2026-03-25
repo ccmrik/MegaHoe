@@ -89,7 +89,7 @@ namespace MegaHoe
             return ((long)gx << 32) | (uint)gz;
         }
 
-        public static void PaintArea(Vector3 center, float radius, Heightmap.Biome biome)
+        public static int PaintArea(Vector3 center, float radius, Heightmap.Biome biome)
         {
             int minGX = Mathf.FloorToInt((center.x - radius) / _cellSize);
             int maxGX = Mathf.CeilToInt((center.x + radius) / _cellSize);
@@ -117,7 +117,8 @@ namespace MegaHoe
                 }
             }
 
-            MegaHoePlugin.LogAlways($"[BiomePaint] Painted {painted} cells (radius={radius}) with biome {biome}");
+            MegaHoePlugin.LogAlways($"[BiomePaint] Painted {painted} cells (radius={radius}) gx=[{minGX}..{maxGX}] gz=[{minGZ}..{maxGZ}] center=({center.x:F1},{center.z:F1})");
+            return painted;
         }
 
         public static bool TryGetOverride(Vector3 pos, out Heightmap.Biome biome)
