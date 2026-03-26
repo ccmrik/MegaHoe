@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.8.6";
+        public const string PluginVersion = "4.9.0";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -494,7 +494,11 @@ namespace MegaHoe
             // Biome paint indicator
             if (showBiome)
             {
-                string text = "Grass Paint: " + BiomePaintManager.GetDisplayName(BiomePaintManager.SelectedBiome) + "  r=" + BiomePaintRadius.Value.ToString("F0");
+                string biomeName = BiomePaintManager.GetDisplayName(BiomePaintManager.SelectedBiome);
+                string text = biomeName + "  r=" + BiomePaintRadius.Value.ToString("F0");
+                int overrides = BiomePaintManager.OverrideCount;
+                if (overrides > 0)
+                    text += "  (" + overrides + " painted)";
                 Color biomeColor = BiomePaintManager.GetBiomeColor(BiomePaintManager.SelectedBiome);
                 GUI.backgroundColor = new Color(biomeColor.r, biomeColor.g, biomeColor.b, 0.85f);
                 GUI.Box(new Rect(x, currentY, width, height), text, _cachedBoxStyle);
@@ -537,6 +541,55 @@ namespace MegaHoe
         {
             return Input.GetKey(TerrainFlattenKey.Value) || Input.GetKey(TerrainResetKey.Value) ||
                    (Input.GetKey(BiomePaintKey.Value) && BiomePaintManager.SelectedBiome != BiomePaintType.None);
+        }
+
+        /// <summary>
+        /// Refresh ground textures and grass after painting/erasing biome overrides.
+        /// Pokes all heightmaps in range to rebuild render mesh, and resets clutter.
+        /// Returns the number of heightmaps poked.
+        /// </summary>
+        public static int RefreshBiomeVisuals(Vector3 center, float radius)
+        {
+            int heightmapsPoked = 0;
+
+            // Poke heightmaps to trigger RebuildRenderMesh (ground texture refresh)
+            try
+            {
+                List<Heightmap> hmaps = new List<Heightmap>();
+                Heightmap.FindHeightmap(center, radius + 64f, hmaps);
+                foreach (var hm in hmaps)
+                {
+                    if (hm != null)
+                    {
+                        hm.Poke(false);
+                        heightmapsPoked++;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogWarning($"[BiomePaint] Heightmap refresh error: {ex.Message}");
+            }
+
+            // Reset clutter (grass/vegetation) to regenerate with new biome data
+            if (ClutterSystem.instance != null)
+            {
+                ClutterSystem.instance.ResetGrass(center, radius + 64f);
+                try
+                {
+                    if (!TerrainModifier._forceRebuildFieldSearched)
+                    {
+                        TerrainModifier._forceRebuildFieldSearched = true;
+                        TerrainModifier._forceRebuildField = typeof(ClutterSystem).GetField("m_forceRebuild", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public);
+                    }
+                    if (TerrainModifier._forceRebuildField != null)
+                        TerrainModifier._forceRebuildField.SetValue(ClutterSystem.instance, true);
+                }
+                catch { }
+            }
+
+            LogAlways($"[BiomePaint] Refreshed: {heightmapsPoked} heightmaps, clutter reset r={radius + 64f:F0}");
+            return heightmapsPoked;
         }
     }
 
@@ -645,98 +698,17 @@ namespace MegaHoe
                     float paintRadius = MegaHoePlugin.BiomePaintRadius.Value;
                     Heightmap.Biome biome = BiomePaintManager.ToGameBiome(BiomePaintManager.SelectedBiome);
                     string biomeName = BiomePaintManager.GetDisplayName(BiomePaintManager.SelectedBiome);
+                    bool isErase = BiomePaintManager.SelectedBiome == BiomePaintType.Erase;
 
-                    MegaHoePlugin.LogAlways($"[BiomePaint] Radius={paintRadius}, Biome={biomeName}, Pos=({toolPos.x:F1},{toolPos.z:F1})");
+                    MegaHoePlugin.LogAlways($"[BiomePaint] {(isErase ? "ERASE" : "PAINT")} Radius={paintRadius}, Biome={biomeName}, Pos=({toolPos.x:F1},{toolPos.z:F1})");
 
-                    int cellsPainted = BiomePaintManager.PaintArea(toolPos, paintRadius, biome);
-                    BiomePaintManager.Save();
+                    int cellsAffected = BiomePaintManager.PaintArea(toolPos, paintRadius, biome);
 
-                    // Verify paint data lookup works at center
-                    Heightmap.Biome verifyBiome;
-                    bool verifyOk = BiomePaintManager.TryGetOverride(toolPos, out verifyBiome);
-                    MegaHoePlugin.LogAlways($"[BiomePaint] Verify center lookup: ok={verifyOk} biome={verifyBiome} total={BiomePaintManager.OverrideCount}");
+                    // Refresh visuals: poke all nearby heightmaps + reset clutter
+                    int heightmapsPoked = MegaHoePlugin.RefreshBiomeVisuals(toolPos, paintRadius);
 
-                    // Force ALL loaded heightmaps to rebuild ground textures
-                    // FindHeightmap only returns loaded tiles, so scan with a generous radius
-                    // AND also get all active heightmaps via Heightmap.Instances
-                    int heightmapsPoked = 0;
-                    try
-                    {
-                        // Method 1: FindHeightmap with large radius
-                        List<Heightmap> hmaps = new List<Heightmap>();
-                        Heightmap.FindHeightmap(toolPos, paintRadius + 64f, hmaps);
-                        foreach (var hm in hmaps)
-                        {
-                            if (hm != null)
-                            {
-                                hm.Poke(false);
-                                heightmapsPoked++;
-                            }
-                        }
-
-                        // Method 2: Get ALL active heightmap instances via reflection
-                        var instancesField = typeof(Heightmap).GetField("s_heightmaps",
-                            BindingFlags.NonPublic | BindingFlags.Static) ??
-                            typeof(Heightmap).GetField("m_heightmaps",
-                            BindingFlags.NonPublic | BindingFlags.Static);
-                        if (instancesField != null)
-                        {
-                            var allHeightmaps = instancesField.GetValue(null) as System.Collections.IEnumerable;
-                            if (allHeightmaps != null)
-                            {
-                                foreach (var obj in allHeightmaps)
-                                {
-                                    var hm = obj as Heightmap;
-                                    if (hm != null && !hmaps.Contains(hm))
-                                    {
-                                        hm.Poke(false);
-                                        heightmapsPoked++;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        MegaHoePlugin.LogWarning($"[BiomePaint] Heightmap refresh error: {ex.Message}");
-                    }
-                    MegaHoePlugin.LogAlways($"[BiomePaint] Poked {heightmapsPoked} heightmaps");
-
-                    // Force clutter regeneration - nuke ALL clutter and rebuild
-                    if (ClutterSystem.instance != null)
-                    {
-                        try
-                        {
-                            // Clear all clutter patches, not just radius
-                            var clearAllMethod = typeof(ClutterSystem).GetMethod("ClearAll",
-                                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                            if (clearAllMethod != null)
-                            {
-                                clearAllMethod.Invoke(ClutterSystem.instance, null);
-                                MegaHoePlugin.LogAlways("[BiomePaint] ClearAll clutter invoked");
-                            }
-                            else
-                            {
-                                // Fallback: ResetGrass with generous radius
-                                ClutterSystem.instance.ResetGrass(toolPos, paintRadius + 64f);
-                            }
-                        }
-                        catch
-                        {
-                            ClutterSystem.instance.ResetGrass(toolPos, paintRadius + 64f);
-                        }
-
-                        // Force full rebuild
-                        if (!TerrainModifier._forceRebuildFieldSearched)
-                        {
-                            TerrainModifier._forceRebuildFieldSearched = true;
-                            TerrainModifier._forceRebuildField = typeof(ClutterSystem).GetField("m_forceRebuild", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public);
-                        }
-                        if (TerrainModifier._forceRebuildField != null)
-                            TerrainModifier._forceRebuildField.SetValue(ClutterSystem.instance, true);
-                    }
-
-                    player.Message(MessageHud.MessageType.Center, $"Painted {biomeName} r={paintRadius} ({cellsPainted} cells, {heightmapsPoked} hmaps)");
+                    string action = isErase ? "Erased" : "Painted";
+                    player.Message(MessageHud.MessageType.Center, $"{action} {biomeName} r={paintRadius} ({cellsAffected} cells)");
 
                     UnityEngine.Object.Destroy(__instance.gameObject);
                     return false;

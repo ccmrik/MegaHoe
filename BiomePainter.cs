@@ -13,9 +13,12 @@ namespace MegaHoe
         None,
         Meadows,
         BlackForest,
+        Swamp,
         Mountain,
         Plains,
-        Mistlands
+        Mistlands,
+        Ashlands,
+        Erase  // Removes paint overrides, restoring original biome
     }
 
     /// <summary>
@@ -41,6 +44,13 @@ namespace MegaHoe
             get { return _overrides.Count; }
         }
 
+        public static void ClearAllOverrides()
+        {
+            int count = _overrides.Count;
+            _overrides.Clear();
+            MegaHoePlugin.LogAlways($"[BiomePaint] Cleared ALL {count} overrides");
+        }
+
         public static void CycleSelection()
         {
             BiomePaintType[] values = (BiomePaintType[])Enum.GetValues(typeof(BiomePaintType));
@@ -54,9 +64,12 @@ namespace MegaHoe
             {
                 case BiomePaintType.Meadows: return Heightmap.Biome.Meadows;
                 case BiomePaintType.BlackForest: return Heightmap.Biome.BlackForest;
+                case BiomePaintType.Swamp: return Heightmap.Biome.Swamp;
                 case BiomePaintType.Mountain: return Heightmap.Biome.Mountain;
                 case BiomePaintType.Plains: return Heightmap.Biome.Plains;
                 case BiomePaintType.Mistlands: return Heightmap.Biome.Mistlands;
+                case BiomePaintType.Ashlands: return Heightmap.Biome.AshLands;
+                case BiomePaintType.Erase: return Heightmap.Biome.None;
                 default: return Heightmap.Biome.None;
             }
         }
@@ -67,9 +80,12 @@ namespace MegaHoe
             {
                 case BiomePaintType.Meadows: return new Color(0.4f, 0.8f, 0.3f);
                 case BiomePaintType.BlackForest: return new Color(0.15f, 0.4f, 0.15f);
+                case BiomePaintType.Swamp: return new Color(0.3f, 0.25f, 0.1f);
                 case BiomePaintType.Mountain: return new Color(0.9f, 0.9f, 0.95f);
                 case BiomePaintType.Plains: return new Color(0.85f, 0.75f, 0.3f);
                 case BiomePaintType.Mistlands: return new Color(0.35f, 0.2f, 0.55f);
+                case BiomePaintType.Ashlands: return new Color(0.7f, 0.2f, 0.1f);
+                case BiomePaintType.Erase: return new Color(0.8f, 0.2f, 0.2f);
                 default: return Color.gray;
             }
         }
@@ -80,6 +96,7 @@ namespace MegaHoe
             {
                 case BiomePaintType.None: return "OFF";
                 case BiomePaintType.BlackForest: return "Black Forest";
+                case BiomePaintType.Erase: return "ERASE";
                 default: return type.ToString();
             }
         }
@@ -262,7 +279,7 @@ namespace MegaHoe
                         _overrides[key] = (Heightmap.Biome)biome;
                     }
                 }
-                MegaHoePlugin.Log($"[BiomeLoad] Loaded {_overrides.Count} overrides from {loadPath}");
+                MegaHoePlugin.LogAlways($"[BiomeLoad] Loaded {_overrides.Count} overrides from {loadPath}");
 
                 // Migrate legacy data to world save path
                 if (isLegacy && _overrides.Count > 0)
@@ -434,8 +451,6 @@ namespace MegaHoe
     /// </summary>
     public static class Heightmap_GetBiome_Patch
     {
-        private static bool _loggedOnce;
-
         public static void Postfix(Vector3 point, ref Heightmap.Biome __result)
         {
             if (BiomePaintManager.OverrideCount == 0) return;
@@ -443,11 +458,6 @@ namespace MegaHoe
             Heightmap.Biome overrideBiome;
             if (BiomePaintManager.TryGetOverride(point, out overrideBiome))
             {
-                if (!_loggedOnce)
-                {
-                    MegaHoePlugin.LogAlways($"[BiomePatch] GetBiome override FIRED: ({point.x:F0},{point.z:F0}) {__result}->{overrideBiome}");
-                    _loggedOnce = true;
-                }
                 __result = overrideBiome;
             }
         }
@@ -464,7 +474,6 @@ namespace MegaHoe
     {
         private static FieldInfo _renderMeshField;
         private static bool _fieldSearched;
-        private static bool _loggedOnce;
 
         public static void Postfix(Heightmap __instance)
         {
@@ -487,7 +496,6 @@ namespace MegaHoe
             if (colors == null || colors.Length != vertices.Length) return;
 
             bool modified = false;
-            int overriddenVerts = 0;
             for (int i = 0; i < vertices.Length; i++)
             {
                 Vector3 worldPos = hmPos + vertices[i];
@@ -496,18 +504,12 @@ namespace MegaHoe
                 {
                     colors[i] = Heightmap.GetBiomeColor(overrideBiome);
                     modified = true;
-                    overriddenVerts++;
                 }
             }
 
             if (modified)
             {
                 mesh.colors32 = colors;
-                if (!_loggedOnce)
-                {
-                    MegaHoePlugin.LogAlways($"[BiomePatch] RebuildRenderMesh override FIRED: {overriddenVerts}/{vertices.Length} verts at hm({hmPos.x:F0},{hmPos.z:F0})");
-                    _loggedOnce = true;
-                }
             }
         }
     }
