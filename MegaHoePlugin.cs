@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.9.0";
+        public const string PluginVersion = "4.9.1";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -724,14 +724,15 @@ namespace MegaHoe
                     MegaHoePlugin.Log($"=== FLATTEN TO PLAYER HEIGHT ===");
                     MegaHoePlugin.Log($"Player ground: {playerGroundHeight:F2}");
                     
-                    // Use direct vertex manipulation to avoid smoothDelta drift
+                    // Direct vertex manipulation for smoothDelta correctness
                     TerrainModifier.LevelTerrainDirect(toolPos, radius, playerGroundHeight);
                     
                     player.Message(MessageHud.MessageType.Center, $"Flattened to {playerGroundHeight:F1}m");
                     
-                    // Destroy the TerrainOp - we handled it
-                    UnityEngine.Object.Destroy(__instance.gameObject);
-                    return false;
+                    // Let vanilla OnPlaced() run with a no-op smooth to trigger Save()
+                    // This ensures terrain changes persist to the world save file
+                    TerrainModifier.ConfigureForPersistence(__instance.m_settings, radius);
+                    return true;
                 }
 
                 // ALT = Reset terrain to world default
@@ -744,8 +745,10 @@ namespace MegaHoe
                     
                     player.Message(MessageHud.MessageType.Center, $"Terrain Reset");
                     
-                    UnityEngine.Object.Destroy(__instance.gameObject);
-                    return false;
+                    // Let vanilla OnPlaced() run with a no-op smooth to trigger Save()
+                    // This ensures terrain changes persist to the world save file
+                    TerrainModifier.ConfigureForPersistence(__instance.m_settings, radius);
+                    return true;
                 }
 
                 // Height bypass: just let vanilla handle it — the transpiler disables Mathf.Clamp
@@ -780,6 +783,30 @@ namespace MegaHoe
         internal static FieldInfo _forceRebuildField;
         internal static bool _forceRebuildFieldSearched;
         private static readonly Dictionary<string, FieldInfo> _fieldCache = new Dictionary<string, FieldInfo>();
+
+        /// <summary>
+        /// Configure TerrainOp settings for a no-op smooth operation.
+        /// This ensures vanilla OnPlaced() finds heightmaps in the given radius
+        /// and calls DoOperation → Save() to persist any direct array modifications.
+        /// Smooth with power=0 changes nothing, but Save() is called unconditionally.
+        /// </summary>
+        public static void ConfigureForPersistence(TerrainOp.Settings s, float radius)
+        {
+            s.m_level = false;
+            s.m_levelRadius = 0f;
+            s.m_levelOffset = 0f;
+            s.m_square = false;
+            s.m_raise = false;
+            s.m_raiseRadius = 0f;
+            s.m_raiseDelta = 0f;
+            s.m_raisePower = 0f;
+            s.m_smooth = true;
+            s.m_smoothRadius = radius;
+            s.m_smoothPower = 0f;
+            s.m_paintCleared = false;
+            s.m_paintRadius = 0f;
+            s.m_paintHeightCheck = false;
+        }
 
         /// <summary>
         /// Apply a raise or level operation WITHOUT height clamping.
@@ -1082,14 +1109,6 @@ namespace MegaHoe
                 if (modified > 0)
                 {
                     MegaHoePlugin.Log($"Leveled {modified} vertices to {targetHeight:F2}m");
-                    SetPrivateField(tc, "m_modified", true);
-                    
-                    if (!_saveMethodSearched)
-                    {
-                        _saveMethodSearched = true;
-                        _saveMethod = typeof(TerrainComp).GetMethod("Save", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                    }
-                    _saveMethod?.Invoke(tc, null);
                     hmap.Poke(true);
                 }
             }
@@ -1121,16 +1140,6 @@ namespace MegaHoe
                 if (count > 0)
                 {
                     MegaHoePlugin.Log($"Reset {count} vertices");
-                    
-                    SetPrivateField(tc, "m_modified", true);
-                    
-                    if (!_saveMethodSearched)
-                    {
-                        _saveMethodSearched = true;
-                        _saveMethod = typeof(TerrainComp).GetMethod("Save", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                    }
-                    _saveMethod?.Invoke(tc, null);
-                    
                     hmap.Poke(true);
                 }
             }
