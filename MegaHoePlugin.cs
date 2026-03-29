@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.9.1";
+        public const string PluginVersion = "4.9.2";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -32,7 +32,7 @@ namespace MegaHoe
         public static ConfigEntry<KeyCode> HeightLimitBypassKey;
         public static ConfigEntry<bool> DebugMode;
 
-        public static bool HeightLimitBypassed = false;
+        public static bool HeightLimitBypassed = true;
 
         private static string _lastWorldName = "";
 
