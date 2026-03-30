@@ -553,36 +553,30 @@ namespace MegaHoe
                     allCalls.Add($"{mi.DeclaringType?.Name}.{mi.Name}");
                 }
 
-                bool patched = false;
                 if (mathfClamp != null && instruction.Calls(mathfClamp))
                 {
                     instruction.operand = replClamp;
                     replaced++;
-                    patched = true;
                 }
                 else if (mathfMin != null && instruction.Calls(mathfMin))
                 {
                     instruction.operand = replMin;
                     replaced++;
-                    patched = true;
                 }
                 else if (mathfMax != null && instruction.Calls(mathfMax))
                 {
                     instruction.operand = replMax;
                     replaced++;
-                    patched = true;
                 }
                 else if (mathMin != null && instruction.Calls(mathMin))
                 {
                     instruction.operand = replMin;
                     replaced++;
-                    patched = true;
                 }
                 else if (mathMax != null && instruction.Calls(mathMax))
                 {
                     instruction.operand = replMax;
                     replaced++;
-                    patched = true;
                 }
 
                 yield return instruction;
