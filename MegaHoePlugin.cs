@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.9.3";
+        public const string PluginVersion = "4.9.4";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -183,30 +183,42 @@ namespace MegaHoe
             int applied = 0;
             try
             {
-                // Find the GetBiome(Vector3) overload that takes a world position
+                // Find the GetBiome overload that takes a world position (Vector3)
+                // Valheim's Unity 6 migration may have changed the signature
                 var getBiomeMethods = typeof(Heightmap).GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
                 MethodInfo targetMethod = null;
+                MethodInfo fallbackMethod = null;
                 foreach (var m in getBiomeMethods)
                 {
                     if (m.Name != "GetBiome") continue;
                     var ps = m.GetParameters();
+                    // Exact match: GetBiome(Vector3)
                     if (ps.Length == 1 && ps[0].ParameterType == typeof(Vector3))
                     {
                         targetMethod = m;
                         break;
                     }
+                    // Fallback: any GetBiome whose first param is Vector3
+                    if (ps.Length > 0 && ps[0].ParameterType == typeof(Vector3) && fallbackMethod == null)
+                        fallbackMethod = m;
                 }
 
-                if (targetMethod != null)
+                var chosen = targetMethod ?? fallbackMethod;
+                if (chosen != null)
                 {
                     var postfix = new HarmonyMethod(typeof(Heightmap_GetBiome_Patch), "Postfix");
-                    _harmony.Patch(targetMethod, postfix: postfix);
+                    _harmony.Patch(chosen, postfix: postfix);
                     applied++;
-                    Log($"Patched Heightmap.GetBiome(Vector3) - ground textures will reflect painted biomes");
+                    var sig = string.Join(", ", chosen.GetParameters().Select(p => $"{p.ParameterType.Name} {p.Name}"));
+                    Log($"Patched Heightmap.GetBiome({sig}) [{(chosen.IsStatic ? "static" : "instance")}]");
                 }
                 else
                 {
-                    _logger.LogWarning("Heightmap.GetBiome(Vector3) not found");
+                    // Dump all available overloads so we can update the patch
+                    var overloads = getBiomeMethods
+                        .Where(m => m.Name == "GetBiome")
+                        .Select(m => $"GetBiome({string.Join(", ", m.GetParameters().Select(p => $"{p.ParameterType.Name} {p.Name}"))}) [{(m.IsStatic ? "static" : "instance")}]");
+                    _logger.LogWarning($"Heightmap.GetBiome not found. Available overloads: {string.Join("; ", overloads)}");
                 }
             }
             catch (Exception ex)
