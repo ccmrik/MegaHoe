@@ -5,5 +5,7 @@ obj/
 *.suo
 InspectorTool/
 
+*.code-workspace
+
 # Maintenance reports
 maintenance-report.json
