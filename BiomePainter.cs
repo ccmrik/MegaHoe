@@ -48,7 +48,7 @@ namespace MegaHoe
         {
             int count = _overrides.Count;
             _overrides.Clear();
-            MegaHoePlugin.LogAlways($"[BiomePaint] Cleared ALL {count} overrides");
+            MegaHoePlugin.Log($"[BiomePaint] Cleared ALL {count} overrides");
         }
 
         public static void CycleSelection()
@@ -134,7 +134,7 @@ namespace MegaHoe
                 }
             }
 
-            MegaHoePlugin.LogAlways($"[BiomePaint] Painted {painted} cells (radius={radius}) gx=[{minGX}..{maxGX}] gz=[{minGZ}..{maxGZ}] center=({center.x:F1},{center.z:F1})");
+            MegaHoePlugin.Log($"[BiomePaint] Painted {painted} cells (radius={radius}) gx=[{minGX}..{maxGX}] gz=[{minGZ}..{maxGZ}] center=({center.x:F1},{center.z:F1})");
             return painted;
         }
 
@@ -279,7 +279,7 @@ namespace MegaHoe
                         _overrides[key] = (Heightmap.Biome)biome;
                     }
                 }
-                MegaHoePlugin.LogAlways($"[BiomeLoad] Loaded {_overrides.Count} overrides from {loadPath}");
+                MegaHoePlugin.Log($"[BiomeLoad] Loaded {_overrides.Count} overrides from {loadPath}");
 
                 // Migrate legacy data to world save path
                 if (isLegacy && _overrides.Count > 0)
@@ -585,7 +585,7 @@ namespace MegaHoe
             _lastReplacedCount = replaced;
 
             // Dump ALL method calls found in the IL for diagnosis
-            MegaHoePlugin.LogAlways($"[HeightBypass] Transpiler: {replaced} replacements. All calls in method: {string.Join(", ", allCalls)}");
+            MegaHoePlugin.Log($"[HeightBypass] Transpiler: {replaced} replacements. All calls in method: {string.Join(", ", allCalls)}");
         }
 
         public static float ConditionalClamp(float value, float min, float max)

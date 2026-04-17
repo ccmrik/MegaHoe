@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.10.0";
+        public const string PluginVersion = "4.10.1";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -283,12 +283,12 @@ namespace MegaHoe
                             int ilSize = 0;
                             try { ilSize = method.GetMethodBody()?.GetILAsByteArray()?.Length ?? 0; } catch { }
                             var ps = method.GetParameters();
-                            _logger.LogInfo($"[HeightBypass] Patching {name}({string.Join(", ", ps.Select(p => p.ParameterType.Name))}) IL={ilSize} bytes");
+                            Log($"[HeightBypass] Patching {name}({string.Join(", ", ps.Select(p => p.ParameterType.Name))}) IL={ilSize} bytes");
 
                             var transpiler = new HarmonyMethod(typeof(TerrainComp_DoOperation_Patch), "Transpiler");
                             _harmony.Patch(method, transpiler: transpiler);
                             applied++;
-                            _logger.LogInfo($"[HeightBypass] {name}: {TerrainComp_DoOperation_Patch.LastReplacedCount} clamp-like calls replaced");
+                            Log($"[HeightBypass] {name}: {TerrainComp_DoOperation_Patch.LastReplacedCount} clamp-like calls replaced");
                         }
                         catch (Exception ex)
                         {
@@ -301,7 +301,7 @@ namespace MegaHoe
                 {
                     _logger.LogWarning("[HeightBypass] No terrain methods patched! Dumping all TerrainComp methods:");
                     foreach (var m in allMethods.Take(50))
-                        _logger.LogInfo($"[HeightBypass]   {m.Name}");
+                        Log($"[HeightBypass]   {m.Name}");
                 }
             }
             catch (Exception ex)
@@ -603,7 +603,7 @@ namespace MegaHoe
                 catch { }
             }
 
-            LogAlways($"[BiomePaint] Refreshed: {heightmapsPoked} heightmaps, clutter reset r={radius + 64f:F0}");
+            Log($"[BiomePaint] Refreshed: {heightmapsPoked} heightmaps, clutter reset r={radius + 64f:F0}");
             return heightmapsPoked;
         }
     }
@@ -668,11 +668,11 @@ namespace MegaHoe
                     float playerY;
                     Heightmap.GetHeight(player.transform.position, out playerY);
 
-                    MegaHoePlugin.LogAlways($"[TerrainOp] Tool={equippedTool} Pos=({toolPos.x:F1},{toolPos.y:F1},{toolPos.z:F1}) TerrainH={terrainY:F2} PlayerH={playerY:F2}");
-                    MegaHoePlugin.LogAlways($"[TerrainOp] raise={settings.m_raise} (r={settings.m_raiseRadius:F1} delta={settings.m_raiseDelta:F2} power={settings.m_raisePower:F2})");
-                    MegaHoePlugin.LogAlways($"[TerrainOp] level={settings.m_level} (r={settings.m_levelRadius:F1} offset={settings.m_levelOffset:F2})");
-                    MegaHoePlugin.LogAlways($"[TerrainOp] smooth={settings.m_smooth} (r={settings.m_smoothRadius:F1} power={settings.m_smoothPower:F2})");
-                    MegaHoePlugin.LogAlways($"[TerrainOp] HeightBypass={MegaHoePlugin.HeightLimitBypassed} IsHoe={MegaHoePlugin.IsUsingHoeOrCultivator(player)}");
+                    MegaHoePlugin.Log($"[TerrainOp] Tool={equippedTool} Pos=({toolPos.x:F1},{toolPos.y:F1},{toolPos.z:F1}) TerrainH={terrainY:F2} PlayerH={playerY:F2}");
+                    MegaHoePlugin.Log($"[TerrainOp] raise={settings.m_raise} (r={settings.m_raiseRadius:F1} delta={settings.m_raiseDelta:F2} power={settings.m_raisePower:F2})");
+                    MegaHoePlugin.Log($"[TerrainOp] level={settings.m_level} (r={settings.m_levelRadius:F1} offset={settings.m_levelOffset:F2})");
+                    MegaHoePlugin.Log($"[TerrainOp] smooth={settings.m_smooth} (r={settings.m_smoothRadius:F1} power={settings.m_smoothPower:F2})");
+                    MegaHoePlugin.Log($"[TerrainOp] HeightBypass={MegaHoePlugin.HeightLimitBypassed} IsHoe={MegaHoePlugin.IsUsingHoeOrCultivator(player)}");
 
                     // Dump TerrainComp deltas at this exact spot
                     List<Heightmap> debugHmaps = new List<Heightmap>();
@@ -697,7 +697,7 @@ namespace MegaHoe
                             if (idx >= 0 && idx < ld.Length)
                             {
                                 float smoothVal = (sd != null && idx < sd.Length) ? sd[idx] : 0f;
-                                MegaHoePlugin.LogAlways($"[TerrainOp] Vertex({cx},{cz}) idx={idx} levelDelta={ld[idx]:F4} smoothDelta={smoothVal:F4} totalDelta={ld[idx] + smoothVal:F4}");
+                                MegaHoePlugin.Log($"[TerrainOp] Vertex({cx},{cz}) idx={idx} levelDelta={ld[idx]:F4} smoothDelta={smoothVal:F4} totalDelta={ld[idx] + smoothVal:F4}");
                             }
                         }
                     }
@@ -715,7 +715,7 @@ namespace MegaHoe
                     string biomeName = BiomePaintManager.GetDisplayName(BiomePaintManager.SelectedBiome);
                     bool isErase = BiomePaintManager.SelectedBiome == BiomePaintType.Erase;
 
-                    MegaHoePlugin.LogAlways($"[BiomePaint] {(isErase ? "ERASE" : "PAINT")} Radius={paintRadius}, Biome={biomeName}, Pos=({toolPos.x:F1},{toolPos.z:F1})");
+                    MegaHoePlugin.Log($"[BiomePaint] {(isErase ? "ERASE" : "PAINT")} Radius={paintRadius}, Biome={biomeName}, Pos=({toolPos.x:F1},{toolPos.z:F1})");
 
                     int cellsAffected = BiomePaintManager.PaintArea(toolPos, paintRadius, biome);
 
@@ -770,11 +770,11 @@ namespace MegaHoe
                 // in DoOperation when HeightLimitBypassed is true. Log for diagnosis.
                 if (MegaHoePlugin.HeightLimitBypassed)
                 {
-                    MegaHoePlugin.LogAlways($"[HeightBypass] PASSTHROUGH to vanilla (transpiler handles unclamping). settings null={__instance.m_settings == null}");
+                    MegaHoePlugin.Log($"[HeightBypass] PASSTHROUGH to vanilla (transpiler handles unclamping). settings null={__instance.m_settings == null}");
                     if (__instance.m_settings != null)
                     {
                         var s = __instance.m_settings;
-                        MegaHoePlugin.LogAlways($"[HeightBypass] raise={s.m_raise}(r={s.m_raiseRadius:F1} d={s.m_raiseDelta:F2}) level={s.m_level}(r={s.m_levelRadius:F1} o={s.m_levelOffset:F2})");
+                        MegaHoePlugin.Log($"[HeightBypass] raise={s.m_raise}(r={s.m_raiseRadius:F1} d={s.m_raiseDelta:F2}) level={s.m_level}(r={s.m_levelRadius:F1} o={s.m_levelOffset:F2})");
                     }
                 }
 
@@ -833,7 +833,7 @@ namespace MegaHoe
             List<Heightmap> heightmaps = new List<Heightmap>();
             Heightmap.FindHeightmap(center, maxRadius, heightmaps);
 
-            MegaHoePlugin.LogAlways($"[HeightBypass] Found {heightmaps.Count} heightmap(s)");
+            MegaHoePlugin.Log($"[HeightBypass] Found {heightmaps.Count} heightmap(s)");
 
             foreach (Heightmap hmap in heightmaps)
             {
@@ -847,11 +847,11 @@ namespace MegaHoe
                 bool[] modifiedHeight = GetPrivateField<bool[]>(tc, "m_modifiedHeight");
                 if (levelDelta == null || modifiedHeight == null)
                 {
-                    MegaHoePlugin.LogAlways($"[HeightBypass] FAILED: levelDelta={levelDelta != null} modifiedHeight={modifiedHeight != null}");
+                    MegaHoePlugin.Log($"[HeightBypass] FAILED: levelDelta={levelDelta != null} modifiedHeight={modifiedHeight != null}");
                     continue;
                 }
 
-                MegaHoePlugin.LogAlways($"[HeightBypass] Heightmap width={hmap.m_width} scale={hmap.m_scale} levelDelta.len={levelDelta.Length}");
+                MegaHoePlugin.Log($"[HeightBypass] Heightmap width={hmap.m_width} scale={hmap.m_scale} levelDelta.len={levelDelta.Length}");
 
                 int width = hmap.m_width;
                 float scale = hmap.m_scale;
@@ -938,7 +938,7 @@ namespace MegaHoe
 
                 if (modified > 0)
                 {
-                    MegaHoePlugin.LogAlways($"[HeightBypass] Modified {modified} vertices on heightmap at ({hmPos.x:F0},{hmPos.z:F0})");
+                    MegaHoePlugin.Log($"[HeightBypass] Modified {modified} vertices on heightmap at ({hmPos.x:F0},{hmPos.z:F0})");
                     SetPrivateField(tc, "m_modified", true);
 
                     if (!_saveMethodSearched)
