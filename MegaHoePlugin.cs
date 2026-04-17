@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.9.4";
+        public const string PluginVersion = "4.10.0";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -65,7 +65,8 @@ namespace MegaHoe
                 HeightLimitBypassKey = Config.Bind("1. Hotkeys", "HeightLimitBypassKey", KeyCode.H,
                     "Press to toggle height limit bypass (while Hoe is equipped) - removes terrain raise/dig caps");
 
-                DebugMode = Config.Bind("3. Debug", "DebugMode", false,
+                // 99. Debug — standardised section across all Mega mods (v4.10.0+)
+                DebugMode = Config.Bind("99. Debug", "DebugMode", false,
                     "Enable verbose debug logging to BepInEx console/log");
 
                 _config = Config;
@@ -366,7 +367,9 @@ namespace MegaHoe
 
                 changed |= MigrateCfgSection(ref text, "Hotkeys", "1. Hotkeys");
                 changed |= MigrateCfgSection(ref text, "Hoe", "2. Hoe");
-                changed |= MigrateCfgSection(ref text, "Debug", "3. Debug");
+                // v4.10.0 standardises debug section name; handle both pre-rename variants
+                changed |= MigrateCfgSection(ref text, "Debug", "99. Debug");
+                changed |= MigrateCfgSection(ref text, "3. Debug", "99. Debug");
 
                 if (changed)
                     File.WriteAllText(configPath, text.TrimEnd() + "\n");
