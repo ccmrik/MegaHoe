@@ -16,7 +16,7 @@ namespace MegaHoe
     {
         public const string PluginGUID = "com.rik.megahoe";
         public const string PluginName = "Mega Hoe";
-        public const string PluginVersion = "4.10.1";
+        public const string PluginVersion = "4.10.2";
 
         private static ManualLogSource _logger;
         private static Harmony _harmony;
@@ -39,7 +39,6 @@ namespace MegaHoe
         private void Awake()
         {
             _logger = Logger;
-            _logger.LogInfo($"{PluginName} v{PluginVersion} loading...");
 
             try
             {
@@ -75,9 +74,9 @@ namespace MegaHoe
                 _harmony = new Harmony(PluginGUID);
                 ApplyPatches();
 
-                _logger.LogInfo($"{PluginName} loaded!");
-                _logger.LogInfo($"CTRL+Hoe = Level | ALT+Hoe = Reset | G = Cycle biome paint | SHIFT+Hoe = Paint grass");
-                _logger.LogInfo($"Live config reloading enabled - edit {Config.ConfigFilePath} and save to apply changes!");
+                _logger.LogInfo($"{PluginName} v{PluginVersion} loaded!");
+                Log($"CTRL+Hoe = Level | ALT+Hoe = Reset | G = Cycle biome paint | SHIFT+Hoe = Paint grass");
+                Log($"Live config reloading enabled - edit {Config.ConfigFilePath} and save to apply changes!");
             }
             catch (Exception ex)
             {
@@ -125,7 +124,7 @@ namespace MegaHoe
             // TerrainComp.DoOperation — height limit bypass
             applied += PatchTerrainCompDoOperation();
 
-            _logger.LogInfo($"Harmony patches: {applied} applied, {failed} failed");
+            Log($"Harmony patches: {applied} applied, {failed} failed");
         }
 
         private int PatchClutterSystem()
@@ -324,7 +323,7 @@ namespace MegaHoe
             _configWatcher.SynchronizingObject = null;
             _configWatcher.EnableRaisingEvents = true;
 
-            _logger.LogInfo($"Config watcher started for: {configFile}");
+            Log($"Config watcher started for: {configFile}");
         }
 
         private static void OnConfigChanged(object sender, FileSystemEventArgs e)
@@ -333,7 +332,7 @@ namespace MegaHoe
             {
                 System.Threading.Thread.Sleep(100);
                 _config.Reload();
-                _logger.LogInfo("Config reloaded! Changes applied.");
+                Log("Config reloaded! Changes applied.");
 
                 if (Player.m_localPlayer != null)
                 {
